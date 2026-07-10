@@ -322,6 +322,13 @@ namespace Nodin.Editor
             {
                 field.SetValue(_target, newValue);
                 InvokeOnValueChanged(field);
+
+                // 标记已修改并立即保存
+                if (_target is UnityEngine.Object unityObj)
+                {
+                    EditorUtility.SetDirty(unityObj);
+                    AssetDatabase.SaveAssetIfDirty(unityObj);
+                }
             }
 
             GUI.enabled = prevEnabled;
