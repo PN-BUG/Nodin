@@ -392,7 +392,7 @@ namespace Nodin.Editor
                     var idx = Array.FindIndex(options, o => o == currentStr);
                     if (idx < 0) idx = 0;
                     idx = EditorGUILayout.Popup(hideLabel ? GUIContent.none : new GUIContent(label), idx, options.Select(o => new GUIContent(o)).ToArray());
-                    return options[idx];
+                    return Convert.ChangeType(options[idx], type);
                 }
             }
 
