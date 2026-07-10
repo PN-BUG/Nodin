@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "com.zko.nodin",
   "version": "1.0.0",
   "displayName": "Nodin - No Odin Inspector & Editor UI Toolkit",
-  "description": "轻量级 Odin Inspector 替代方案 + 编辑器 UI 工具集。通过反射式自动绘制器，提供 [FoldoutGroup]、[LabelText]、[Button]、[ShowIf] 等常用特性；内置 Palette/Theme/Styles/Drawing 编辑器样式与绘图工具，无需安装任何第三方插件。",
+  "description": "杞婚噺绾?Odin Inspector 鏇夸唬鏂规 + 缂栬緫鍣?UI 宸ュ叿闆嗐€傞€氳繃鍙嶅皠寮忚嚜鍔ㄧ粯鍒跺櫒锛屾彁渚?[FoldoutGroup]銆乕LabelText]銆乕Button]銆乕ShowIf] 绛夊父鐢ㄧ壒鎬э紱鍐呯疆 Palette/Theme/Styles/Drawing 缂栬緫鍣ㄦ牱寮忎笌缁樺浘宸ュ叿锛屾棤闇€瀹夎浠讳綍绗笁鏂规彃浠躲€?,
   "unity": "2021.3",
   "keywords": [
     "inspector",
@@ -19,3 +19,4 @@
   "license": "Apache-2.0",
   "type": "library"
 }
+
