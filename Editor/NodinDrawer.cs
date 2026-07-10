@@ -24,21 +24,106 @@ namespace Nodin.Editor
     {
         private readonly object _target;
         private readonly Type _type;
-        private readonly FieldInfo[] _fields;
-        private readonly MethodInfo[] _methods;
+
+        // ── 缓存的字段/方法元数据（构造时一次性读取所有 Attribute）──
+        private readonly FieldMeta[] _fieldMetas;
+        private readonly MethodMeta[] _methodMetas;
+
+        // ── 缓存的分组排序（构造时计算，避免每帧 LINQ 遍历）──
+        private readonly List<string> _orderedTopGroups;
+        private readonly Dictionary<string, List<string>> _subGroupMap;
+
         private readonly Dictionary<string, bool> _foldoutStates = new();
+
+        // ── 复用 GUIContent（避免每帧分配）──
+        private static readonly GUIContent _cachedLabel = new GUIContent();
+
+        // ── 复用 GUIStyle（DrawListField 中每个列表项）──
+        private static GUIStyle _listItemNumStyle;
 
         public NodinDrawer(object target)
         {
             _target = target;
             _type = target.GetType();
-            _fields = _type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
+
+            // ── 收集字段并缓存所有 Attribute ──
+            var fields = _type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(f => f.IsPublic || f.GetCustomAttribute<ShowInInspectorAttribute>() != null)
                 .Where(f => f.GetCustomAttribute<HideInInspector>() == null || f.GetCustomAttribute<ShowInInspectorAttribute>() != null)
                 .ToArray();
-            _methods = _type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+
+            _fieldMetas = new FieldMeta[fields.Length];
+            for (int i = 0; i < fields.Length; i++)
+                _fieldMetas[i] = FieldMeta.Build(fields[i]);
+
+            // ── 收集方法并缓存所有 Attribute ──
+            var methods = _type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .Where(m => m.GetCustomAttribute<ButtonAttribute>() != null)
                 .ToArray();
+
+            _methodMetas = new MethodMeta[methods.Length];
+            for (int i = 0; i < methods.Length; i++)
+                _methodMetas[i] = MethodMeta.Build(methods[i]);
+
+            // ── 预计算分组排序 ──
+            _orderedTopGroups = new List<string>();
+            var groupOrders = new Dictionary<string, int>();
+
+            foreach (var fm in _fieldMetas)
+            {
+                var topName = fm.TopGroupName;
+                if (topName != null && !_orderedTopGroups.Contains(topName))
+                {
+                    _orderedTopGroups.Add(topName);
+                    groupOrders[topName] = fm.FoldoutGroup?.Order ?? 0;
+                }
+            }
+
+            foreach (var mm in _methodMetas)
+            {
+                if (mm.FoldoutGroup == null) continue;
+                var topName = mm.TopGroupName;
+                if (!_orderedTopGroups.Contains(topName))
+                {
+                    _orderedTopGroups.Add(topName);
+                    groupOrders[topName] = mm.FoldoutGroup.Order;
+                }
+            }
+
+            _orderedTopGroups.Sort((a, b) => groupOrders[a].CompareTo(groupOrders[b]));
+
+            // ── 预计算子分组映射 ──
+            _subGroupMap = new Dictionary<string, List<string>>();
+            foreach (var fm in _fieldMetas)
+            {
+                if (fm.FoldoutGroup == null) continue;
+                var groupName = fm.FoldoutGroup.GroupName;
+                var slash = groupName.IndexOf('/');
+                if (slash < 0) continue;
+                var topName = groupName.Substring(0, slash);
+                if (!_subGroupMap.TryGetValue(topName, out var subs))
+                {
+                    subs = new List<string>();
+                    _subGroupMap[topName] = subs;
+                }
+                if (!subs.Contains(groupName))
+                    subs.Add(groupName);
+            }
+            foreach (var mm in _methodMetas)
+            {
+                if (mm.FoldoutGroup == null) continue;
+                var groupName = mm.FoldoutGroup.GroupName;
+                var slash = groupName.IndexOf('/');
+                if (slash < 0) continue;
+                var topName = groupName.Substring(0, slash);
+                if (!_subGroupMap.TryGetValue(topName, out var subs))
+                {
+                    subs = new List<string>();
+                    _subGroupMap[topName] = subs;
+                }
+                if (!subs.Contains(groupName))
+                    subs.Add(groupName);
+            }
         }
 
         public void Draw()
@@ -46,8 +131,7 @@ namespace Nodin.Editor
             DrawUngroupedFields();
             DrawUngroupedButtons();
 
-            var topGroups = GetOrderedTopGroupNames();
-            foreach (var groupName in topGroups)
+            foreach (var groupName in _orderedTopGroups)
             {
                 DrawTopGroup(groupName);
             }
@@ -59,8 +143,8 @@ namespace Nodin.Editor
         {
             if (!_foldoutStates.ContainsKey(groupName))
             {
-                var firstField = _fields.FirstOrDefault(f => GetTopGroupName(f) == groupName);
-                var expanded = firstField?.GetCustomAttribute<FoldoutGroupAttribute>()?.Expanded ?? false;
+                var firstField = Array.Find(_fieldMetas, fm => fm.TopGroupName == groupName);
+                var expanded = firstField?.FoldoutGroup?.Expanded ?? false;
                 _foldoutStates[groupName] = expanded;
             }
 
@@ -74,15 +158,17 @@ namespace Nodin.Editor
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                 EditorGUILayout.Space(2);
 
-                DrawFieldsInGroup(groupName, exactMatch: true);
+                DrawFieldsInGroup(groupName);
 
-                var subGroups = GetSubGroupNames(groupName);
-                foreach (var sub in subGroups)
+                if (_subGroupMap.TryGetValue(groupName, out var subGroups))
                 {
-                    DrawSubGroup(sub, groupName);
+                    foreach (var sub in subGroups)
+                    {
+                        DrawSubGroup(sub, groupName);
+                    }
                 }
 
-                DrawButtonsInGroup(groupName, exactMatch: true);
+                DrawButtonsInGroup(groupName);
 
                 EditorGUILayout.Space(2);
                 EditorGUILayout.EndVertical();
@@ -98,8 +184,8 @@ namespace Nodin.Editor
 
             if (!_foldoutStates.ContainsKey(stateKey))
             {
-                var firstField = _fields.FirstOrDefault(f => f.GetCustomAttribute<FoldoutGroupAttribute>()?.GroupName == fullGroupName);
-                var expanded = firstField?.GetCustomAttribute<FoldoutGroupAttribute>()?.Expanded ?? true;
+                var firstField = Array.Find(_fieldMetas, fm => fm.FoldoutGroup?.GroupName == fullGroupName);
+                var expanded = firstField?.FoldoutGroup?.Expanded ?? true;
                 _foldoutStates[stateKey] = expanded;
             }
 
@@ -110,8 +196,8 @@ namespace Nodin.Editor
             if (_foldoutStates[stateKey])
             {
                 EditorGUI.indentLevel++;
-                DrawFieldsInGroup(fullGroupName, exactMatch: true);
-                DrawButtonsInGroup(fullGroupName, exactMatch: true);
+                DrawFieldsInGroup(fullGroupName);
+                DrawButtonsInGroup(fullGroupName);
                 EditorGUI.indentLevel--;
             }
         }
@@ -148,127 +234,49 @@ namespace Nodin.Editor
             EditorGUI.LabelField(labelRect, title, EditorStyles.boldLabel);
         }
 
-        // ── 分组排序 ──────────────────────────────────────
-
-        private static string GetTopGroupName(FieldInfo field)
-        {
-            var attr = field.GetCustomAttribute<FoldoutGroupAttribute>();
-            if (attr == null) return null;
-            var name = attr.GroupName;
-            var slash = name.IndexOf('/');
-            return slash >= 0 ? name.Substring(0, slash) : name;
-        }
-
-        private List<string> GetOrderedTopGroupNames()
-        {
-            var groups = new List<string>();
-            var orders = new Dictionary<string, int>();
-
-            foreach (var f in _fields)
-            {
-                var topName = GetTopGroupName(f);
-                if (topName != null && !groups.Contains(topName))
-                {
-                    groups.Add(topName);
-                    var attr = f.GetCustomAttribute<FoldoutGroupAttribute>();
-                    orders[topName] = attr.Order;
-                }
-            }
-
-            foreach (var m in _methods)
-            {
-                var attr = m.GetCustomAttribute<FoldoutGroupAttribute>();
-                if (attr != null)
-                {
-                    var name = attr.GroupName;
-                    var slash = name.IndexOf('/');
-                    var topName = slash >= 0 ? name.Substring(0, slash) : name;
-                    if (!groups.Contains(topName))
-                    {
-                        groups.Add(topName);
-                        orders[topName] = attr.Order;
-                    }
-                }
-            }
-
-            groups.Sort((a, b) => orders[a].CompareTo(orders[b]));
-            return groups;
-        }
-
-        private List<string> GetSubGroupNames(string parentGroup)
-        {
-            var subs = new List<string>();
-            foreach (var f in _fields)
-            {
-                var attr = f.GetCustomAttribute<FoldoutGroupAttribute>();
-                if (attr != null && attr.GroupName.StartsWith(parentGroup + "/") && !subs.Contains(attr.GroupName))
-                    subs.Add(attr.GroupName);
-            }
-            foreach (var m in _methods)
-            {
-                var attr = m.GetCustomAttribute<FoldoutGroupAttribute>();
-                if (attr != null && attr.GroupName.StartsWith(parentGroup + "/") && !subs.Contains(attr.GroupName))
-                    subs.Add(attr.GroupName);
-            }
-            return subs;
-        }
-
         // ── 字段绘制 ──────────────────────────────────────
 
         private void DrawUngroupedFields()
         {
-            foreach (var field in _fields)
+            foreach (var fm in _fieldMetas)
             {
-                if (field.GetCustomAttribute<FoldoutGroupAttribute>() != null) continue;
-                if (!ShouldShow(field)) continue;
-                DrawField(field);
+                if (fm.FoldoutGroup != null) continue;
+                if (!ShouldShow(fm)) continue;
+                DrawField(fm);
             }
         }
 
-        private void DrawFieldsInGroup(string groupName, bool exactMatch = true)
+        private void DrawFieldsInGroup(string groupName)
         {
-            foreach (var field in _fields)
+            foreach (var fm in _fieldMetas)
             {
-                var attr = field.GetCustomAttribute<FoldoutGroupAttribute>();
-                if (attr == null) continue;
-                if (exactMatch)
-                {
-                    if (attr.GroupName != groupName) continue;
-                }
-                else
-                {
-                    continue;
-                }
-                if (!ShouldShow(field)) continue;
-                DrawField(field);
+                if (fm.FoldoutGroup == null) continue;
+                if (fm.FoldoutGroup.GroupName != groupName) continue;
+                if (!ShouldShow(fm)) continue;
+                DrawField(fm);
             }
         }
 
-        private bool ShouldShow(FieldInfo field)
+        private bool ShouldShow(FieldMeta fm)
         {
-            var showIf = field.GetCustomAttribute<ShowIfAttribute>();
-            if (showIf != null && !EvaluateCondition(showIf.MemberName, showIf.Value))
+            if (fm.ShowIf != null && !EvaluateCondition(fm.ShowIf.MemberName, fm.ShowIf.Value))
                 return false;
 
-            var hideIf = field.GetCustomAttribute<HideIfAttribute>();
-            if (hideIf != null && EvaluateCondition(hideIf.MemberName, hideIf.Value))
+            if (fm.HideIf != null && EvaluateCondition(fm.HideIf.MemberName, fm.HideIf.Value))
                 return false;
 
             return true;
         }
 
-        private bool ShouldEnable(FieldInfo field)
+        private bool ShouldEnable(FieldMeta fm)
         {
-            var enableIf = field.GetCustomAttribute<EnableIfAttribute>();
-            if (enableIf != null && !EvaluateCondition(enableIf.MemberName, enableIf.Value))
+            if (fm.EnableIf != null && !EvaluateCondition(fm.EnableIf.MemberName, fm.EnableIf.Value))
                 return false;
 
-            var disableIf = field.GetCustomAttribute<DisableIfAttribute>();
-            if (disableIf != null && EvaluateCondition(disableIf.MemberName, disableIf.Value))
+            if (fm.DisableIf != null && EvaluateCondition(fm.DisableIf.MemberName, fm.DisableIf.Value))
                 return false;
 
-            var readOnly = field.GetCustomAttribute<ReadOnlyAttribute>();
-            if (readOnly != null) return false;
+            if (fm.ReadOnly != null) return false;
 
             return true;
         }
@@ -300,28 +308,25 @@ namespace Nodin.Editor
             return true;
         }
 
-        private void DrawField(FieldInfo field)
+        private void DrawField(FieldMeta fm)
         {
-            DrawInfoBox(field);
+            DrawInfoBox(fm);
 
-            var labelAttr = field.GetCustomAttribute<LabelTextAttribute>();
-            var hideLabelAttr = field.GetCustomAttribute<HideLabelAttribute>();
-            var label = labelAttr != null ? labelAttr.Text : ObjectNames.NicifyVariableName(field.Name);
-
-            var enabled = ShouldEnable(field);
+            var label = fm.Label;
+            var enabled = ShouldEnable(fm);
             var prevEnabled = GUI.enabled;
             GUI.enabled = enabled;
 
             EditorGUI.BeginChangeCheck();
 
-            var fieldType = field.FieldType;
-            var value = field.GetValue(_target);
-            object newValue = DrawFieldByType(label, value, fieldType, field, hideLabelAttr != null);
+            var fieldType = fm.Field.FieldType;
+            var value = fm.Field.GetValue(_target);
+            object newValue = DrawFieldByType(label, value, fieldType, fm);
 
             if (EditorGUI.EndChangeCheck())
             {
-                field.SetValue(_target, newValue);
-                InvokeOnValueChanged(field);
+                fm.Field.SetValue(_target, newValue);
+                InvokeOnValueChanged(fm);
 
                 // 标记已修改并立即保存
                 if (_target is UnityEngine.Object unityObj)
@@ -334,10 +339,10 @@ namespace Nodin.Editor
             GUI.enabled = prevEnabled;
         }
 
-        private void DrawInfoBox(FieldInfo field)
+        private void DrawInfoBox(FieldMeta fm)
         {
-            var infoBoxes = field.GetCustomAttributes<InfoBoxAttribute>();
-            foreach (var info in infoBoxes)
+            if (fm.InfoBoxes == null) return;
+            foreach (var info in fm.InfoBoxes)
             {
                 if (!string.IsNullOrEmpty(info.VisibleIfMemberName) && !EvaluateCondition(info.VisibleIfMemberName, true))
                     continue;
@@ -353,11 +358,12 @@ namespace Nodin.Editor
             }
         }
 
-        private object DrawFieldByType(string label, object value, Type type, FieldInfo field, bool hideLabel)
+        private object DrawFieldByType(string label, object value, Type type, FieldMeta fm)
         {
+            var hideLabel = fm.HideLabel != null;
+
             // FolderPath
-            var folderPathAttr = field.GetCustomAttribute<FolderPathAttribute>();
-            if (folderPathAttr != null && type == typeof(string))
+            if (fm.FolderPath != null && type == typeof(string))
             {
                 var path = (string)value;
                 EditorGUILayout.BeginHorizontal();
@@ -368,7 +374,7 @@ namespace Nodin.Editor
                     var selected = EditorUtility.OpenFolderPanel("选择文件夹", path ?? "", "");
                     if (!string.IsNullOrEmpty(selected))
                     {
-                        if (!folderPathAttr.AbsolutePath && selected.StartsWith(Application.dataPath))
+                        if (!fm.FolderPath.AbsolutePath && selected.StartsWith(Application.dataPath))
                             path = "Assets" + selected.Substring(Application.dataPath.Length);
                         else
                             path = selected;
@@ -379,45 +385,48 @@ namespace Nodin.Editor
             }
 
             // MultiLineProperty
-            var multiLineAttr = field.GetCustomAttribute<MultiLinePropertyAttribute>();
-            if (multiLineAttr != null && type == typeof(string))
+            if (fm.MultiLine != null && type == typeof(string))
             {
-                var lines = Mathf.Max(1, multiLineAttr.Lines);
+                var lines = Mathf.Max(1, fm.MultiLine.Lines);
                 if (hideLabel)
                     return EditorGUILayout.TextArea((string)value ?? "", GUILayout.MinHeight(lines * 18));
                 return EditorGUILayout.TextField(label, (string)value ?? "");
             }
 
             // ValueDropdown
-            var dropdownAttr = field.GetCustomAttribute<ValueDropdownAttribute>();
-            if (dropdownAttr != null)
+            if (fm.ValueDropdown != null)
             {
-                var options = InvokeValueDropdownMember(dropdownAttr.MemberName);
+                var options = fm.GetDropdownOptions(this);
                 if (options != null && options.Length > 0)
                 {
                     var currentStr = value?.ToString() ?? "";
                     var idx = Array.FindIndex(options, o => o == currentStr);
                     if (idx < 0) idx = 0;
-                    idx = EditorGUILayout.Popup(hideLabel ? GUIContent.none : new GUIContent(label), idx, options.Select(o => new GUIContent(o)).ToArray());
+                    _cachedLabel.text = label;
+                    _cachedLabel.tooltip = "";
+                    idx = EditorGUILayout.Popup(hideLabel ? GUIContent.none : _cachedLabel, idx, options);
                     return Convert.ChangeType(options[idx], type);
                 }
             }
 
             // 基本类型
-            if (type == typeof(bool)) return EditorGUILayout.Toggle(hideLabel ? GUIContent.none : new GUIContent(label), (bool)value);
-            if (type == typeof(int)) return EditorGUILayout.IntField(hideLabel ? GUIContent.none : new GUIContent(label), (int)value);
-            if (type == typeof(long)) return EditorGUILayout.LongField(hideLabel ? GUIContent.none : new GUIContent(label), (long)value);
-            if (type == typeof(float)) return EditorGUILayout.FloatField(hideLabel ? GUIContent.none : new GUIContent(label), (float)value);
-            if (type == typeof(double)) return EditorGUILayout.DoubleField(hideLabel ? GUIContent.none : new GUIContent(label), (double)value);
-            if (type == typeof(string)) return EditorGUILayout.TextField(hideLabel ? GUIContent.none : new GUIContent(label), (string)value ?? "");
+            _cachedLabel.text = label;
+            _cachedLabel.tooltip = "";
+
+            if (type == typeof(bool)) return EditorGUILayout.Toggle(hideLabel ? GUIContent.none : _cachedLabel, (bool)value);
+            if (type == typeof(int)) return EditorGUILayout.IntField(hideLabel ? GUIContent.none : _cachedLabel, (int)value);
+            if (type == typeof(long)) return EditorGUILayout.LongField(hideLabel ? GUIContent.none : _cachedLabel, (long)value);
+            if (type == typeof(float)) return EditorGUILayout.FloatField(hideLabel ? GUIContent.none : _cachedLabel, (float)value);
+            if (type == typeof(double)) return EditorGUILayout.DoubleField(hideLabel ? GUIContent.none : _cachedLabel, (double)value);
+            if (type == typeof(string)) return EditorGUILayout.TextField(hideLabel ? GUIContent.none : _cachedLabel, (string)value ?? "");
             if (type == typeof(Vector2)) return EditorGUILayout.Vector2Field(hideLabel ? "" : label, (Vector2)value);
             if (type == typeof(Vector3)) return EditorGUILayout.Vector3Field(hideLabel ? "" : label, (Vector3)value);
             if (type == typeof(Vector4)) return EditorGUILayout.Vector4Field(hideLabel ? "" : label, (Vector4)value);
-            if (type == typeof(Color)) return EditorGUILayout.ColorField(hideLabel ? GUIContent.none : new GUIContent(label), (Color)value);
-            if (type == typeof(Rect)) return EditorGUILayout.RectField(hideLabel ? GUIContent.none : new GUIContent(label), (Rect)value);
-            if (type.IsEnum) return EditorGUILayout.EnumPopup(hideLabel ? GUIContent.none : new GUIContent(label), (Enum)value);
+            if (type == typeof(Color)) return EditorGUILayout.ColorField(hideLabel ? GUIContent.none : _cachedLabel, (Color)value);
+            if (type == typeof(Rect)) return EditorGUILayout.RectField(hideLabel ? GUIContent.none : _cachedLabel, (Rect)value);
+            if (type.IsEnum) return EditorGUILayout.EnumPopup(hideLabel ? GUIContent.none : _cachedLabel, (Enum)value);
             if (typeof(UnityEngine.Object).IsAssignableFrom(type))
-                return EditorGUILayout.ObjectField(hideLabel ? GUIContent.none : new GUIContent(label), (UnityEngine.Object)value, type, true);
+                return EditorGUILayout.ObjectField(hideLabel ? GUIContent.none : _cachedLabel, (UnityEngine.Object)value, type, true);
 
             // List<T>
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
@@ -458,13 +467,15 @@ namespace Nodin.Editor
                 EditorGUILayout.LabelField("（空列表）", EditorStyles.centeredGreyMiniLabel);
             }
 
+            if (_listItemNumStyle == null)
+                _listItemNumStyle = new GUIStyle(EditorStyles.miniLabel) { fixedWidth = 28 };
+
             for (int i = 0; i < list.Count; i++)
             {
                 var itemValue = list[i];
                 EditorGUILayout.BeginHorizontal();
 
-                var numStyle = new GUIStyle(EditorStyles.miniLabel) { fixedWidth = 28 };
-                EditorGUILayout.LabelField($"#{i}", numStyle);
+                EditorGUILayout.LabelField($"#{i}", _listItemNumStyle);
 
                 if (listType == typeof(bool))
                     list[i] = EditorGUILayout.Toggle((bool)itemValue);
@@ -507,43 +518,36 @@ namespace Nodin.Editor
 
         private void DrawUngroupedButtons()
         {
-            foreach (var method in _methods)
+            foreach (var mm in _methodMetas)
             {
-                if (method.GetCustomAttribute<FoldoutGroupAttribute>() != null) continue;
-                if (!ShouldShowMethod(method)) continue;
-                DrawButton(method);
+                if (mm.FoldoutGroup != null) continue;
+                if (!ShouldShowMethod(mm)) continue;
+                DrawButton(mm);
             }
         }
 
-        private void DrawButtonsInGroup(string groupName, bool exactMatch = true)
+        private void DrawButtonsInGroup(string groupName)
         {
-            foreach (var method in _methods)
+            foreach (var mm in _methodMetas)
             {
-                var attr = method.GetCustomAttribute<FoldoutGroupAttribute>();
-                if (attr == null) continue;
-                if (exactMatch && attr.GroupName != groupName) continue;
-                if (!ShouldShowMethod(method)) continue;
-                DrawButton(method);
+                if (mm.FoldoutGroup == null) continue;
+                if (mm.FoldoutGroup.GroupName != groupName) continue;
+                if (!ShouldShowMethod(mm)) continue;
+                DrawButton(mm);
             }
         }
 
-        private bool ShouldShowMethod(MethodInfo method)
+        private bool ShouldShowMethod(MethodMeta mm)
         {
-            var showIf = method.GetCustomAttribute<ShowIfAttribute>();
-            if (showIf != null && !EvaluateCondition(showIf.MemberName, showIf.Value))
+            if (mm.ShowIf != null && !EvaluateCondition(mm.ShowIf.MemberName, mm.ShowIf.Value))
                 return false;
             return true;
         }
 
-        private void DrawButton(MethodInfo method)
+        private void DrawButton(MethodMeta mm)
         {
-            var btnAttr = method.GetCustomAttribute<ButtonAttribute>();
-            var labelAttr = method.GetCustomAttribute<LabelTextAttribute>();
-            var colorAttr = method.GetCustomAttribute<GUIColorAttribute>();
-            var enableIf = method.GetCustomAttribute<EnableIfAttribute>();
-
-            var label = btnAttr.Name ?? labelAttr?.Text ?? ObjectNames.NicifyVariableName(method.Name);
-            var height = btnAttr.Size switch
+            var label = mm.Button.Name ?? mm.LabelText?.Text ?? ObjectNames.NicifyVariableName(mm.Method.Name);
+            var height = mm.Button.Size switch
             {
                 ButtonSizes.Small => 20,
                 ButtonSizes.Medium => 28,
@@ -551,20 +555,20 @@ namespace Nodin.Editor
                 _ => 28,
             };
 
-            var enabled = enableIf == null || EvaluateCondition(enableIf.MemberName, enableIf.Value);
+            var enabled = mm.EnableIf == null || EvaluateCondition(mm.EnableIf.MemberName, mm.EnableIf.Value);
             var prevColor = GUI.backgroundColor;
-            if (colorAttr != null) GUI.backgroundColor = colorAttr.Color;
+            if (mm.GUIColor != null) GUI.backgroundColor = mm.GUIColor.Color;
 
             var prevEnabled = GUI.enabled;
             GUI.enabled = enabled;
 
             if (GUILayout.Button(label, GUILayout.Height(height)))
             {
-                var paramStrs = method.GetParameters();
+                var paramStrs = mm.Method.GetParameters();
                 var args = new object[paramStrs.Length];
                 for (int i = 0; i < paramStrs.Length; i++)
                     args[i] = paramStrs[i].DefaultValue != DBNull.Value ? paramStrs[i].DefaultValue : (paramStrs[i].ParameterType.IsValueType ? Activator.CreateInstance(paramStrs[i].ParameterType) : null);
-                method.Invoke(_target, args);
+                mm.Method.Invoke(_target, args);
             }
 
             GUI.enabled = prevEnabled;
@@ -573,13 +577,112 @@ namespace Nodin.Editor
 
         // ── 辅助 ──────────────────────────────────────────
 
-        private void InvokeOnValueChanged(FieldInfo field)
+        private void InvokeOnValueChanged(FieldMeta fm)
         {
-            var attr = field.GetCustomAttribute<OnValueChangedAttribute>();
-            if (attr == null) return;
-            var method = _type.GetMethod(attr.MethodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (fm.OnValueChanged == null) return;
+            var method = _type.GetMethod(fm.OnValueChanged.MethodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             method?.Invoke(_target, null);
         }
+
+        // ── 字段元数据缓存 ──────────────────────────────────
+
+        private class FieldMeta
+        {
+            public FieldInfo Field;
+            public string Label;
+            public FoldoutGroupAttribute FoldoutGroup;
+            public string TopGroupName;
+            public LabelTextAttribute LabelText;
+            public HideLabelAttribute HideLabel;
+            public ShowIfAttribute ShowIf;
+            public HideIfAttribute HideIf;
+            public EnableIfAttribute EnableIf;
+            public DisableIfAttribute DisableIf;
+            public ReadOnlyAttribute ReadOnly;
+            public FolderPathAttribute FolderPath;
+            public MultiLinePropertyAttribute MultiLine;
+            public ValueDropdownAttribute ValueDropdown;
+            public InfoBoxAttribute[] InfoBoxes;
+            public OnValueChangedAttribute OnValueChanged;
+
+            // 缓存的 dropdown 选项
+            private string[] _cachedOptions;
+            private bool _optionsResolved;
+
+            public static FieldMeta Build(FieldInfo field)
+            {
+                var fm = new FieldMeta { Field = field };
+
+                fm.FoldoutGroup = field.GetCustomAttribute<FoldoutGroupAttribute>();
+                if (fm.FoldoutGroup != null)
+                {
+                    var name = fm.FoldoutGroup.GroupName;
+                    var slash = name.IndexOf('/');
+                    fm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
+                }
+
+                fm.LabelText = field.GetCustomAttribute<LabelTextAttribute>();
+                fm.HideLabel = field.GetCustomAttribute<HideLabelAttribute>();
+                fm.Label = fm.LabelText != null ? fm.LabelText.Text : ObjectNames.NicifyVariableName(field.Name);
+
+                fm.ShowIf = field.GetCustomAttribute<ShowIfAttribute>();
+                fm.HideIf = field.GetCustomAttribute<HideIfAttribute>();
+                fm.EnableIf = field.GetCustomAttribute<EnableIfAttribute>();
+                fm.DisableIf = field.GetCustomAttribute<DisableIfAttribute>();
+                fm.ReadOnly = field.GetCustomAttribute<ReadOnlyAttribute>();
+                fm.FolderPath = field.GetCustomAttribute<FolderPathAttribute>();
+                fm.MultiLine = field.GetCustomAttribute<MultiLinePropertyAttribute>();
+                fm.ValueDropdown = field.GetCustomAttribute<ValueDropdownAttribute>();
+                fm.InfoBoxes = field.GetCustomAttributes<InfoBoxAttribute>().ToArray();
+                fm.OnValueChanged = field.GetCustomAttribute<OnValueChangedAttribute>();
+
+                return fm;
+            }
+
+            public string[] GetDropdownOptions(NodinDrawer drawer)
+            {
+                if (_optionsResolved) return _cachedOptions;
+                _optionsResolved = true;
+                _cachedOptions = drawer.InvokeValueDropdownMember(ValueDropdown.MemberName);
+                return _cachedOptions;
+            }
+        }
+
+        // ── 方法元数据缓存 ──────────────────────────────────
+
+        private class MethodMeta
+        {
+            public MethodInfo Method;
+            public ButtonAttribute Button;
+            public FoldoutGroupAttribute FoldoutGroup;
+            public string TopGroupName;
+            public LabelTextAttribute LabelText;
+            public GUIColorAttribute GUIColor;
+            public EnableIfAttribute EnableIf;
+            public ShowIfAttribute ShowIf;
+
+            public static MethodMeta Build(MethodInfo method)
+            {
+                var mm = new MethodMeta { Method = method };
+
+                mm.Button = method.GetCustomAttribute<ButtonAttribute>();
+                mm.FoldoutGroup = method.GetCustomAttribute<FoldoutGroupAttribute>();
+                if (mm.FoldoutGroup != null)
+                {
+                    var name = mm.FoldoutGroup.GroupName;
+                    var slash = name.IndexOf('/');
+                    mm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
+                }
+                mm.LabelText = method.GetCustomAttribute<LabelTextAttribute>();
+                mm.GUIColor = method.GetCustomAttribute<GUIColorAttribute>();
+                mm.EnableIf = method.GetCustomAttribute<EnableIfAttribute>();
+                mm.ShowIf = method.GetCustomAttribute<ShowIfAttribute>();
+
+                return mm;
+            }
+        }
+
+        // ── ValueDropdown 辅助 ──────────────────────────────
 
         private string[] InvokeValueDropdownMember(string memberName)
         {

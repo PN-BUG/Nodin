@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- **版本**: 1.0.0
+- **版本**: 1.1.0
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -333,7 +333,7 @@ public class DropdownExample : MonoBehaviour
 
 2. **条件显示**: `[ShowIf]`、`[HideIf]` 等条件特性支持字段、属性和无参布尔方法作为条件源
 
-3. **性能考虑**: 由于使用反射，大量字段的绘制可能会有轻微性能影响，但对于常规使用完全足够
+3. **性能优化**: `NodinDrawer` 在构造时一次性缓存所有字段/方法的 Attribute 元数据（`FieldMeta`/`MethodMeta`），后续 OnGUI 仅查询缓存，避免每帧重复反射调用。分组排序与子分组映射也在构造时预计算。ValueDropdown 选项首次解析后缓存。`GUIContent` / `GUIStyle` 复用静态实例，消除每帧 GC 分配
 
 4. **兼容性**: 与 Unity 原生特性（如 `[Header]`、`[Tooltip]`、`[Range]`）完全兼容，可以混合使用
 
@@ -375,6 +375,12 @@ private string[] GetOptions() => new[] { "选项1", "选项2", "选项3" };
 ```
 
 ## 更新日志
+
+### v1.1.0 (2026-07-11)
+- NodinDrawer 重构：构造时缓存所有字段/方法的 Attribute 元数据（`FieldMeta`/`MethodMeta`），消除每帧重复反射调用
+- 预计算分组排序与子分组映射，避免每帧 LINQ 遍历
+- 缓存 ValueDropdown 选项结果，首次解析后复用
+- 复用静态 `GUIContent` / `GUIStyle` 实例，消除每帧 GC 分配
 
 ### v1.0.0 (2026-07-09)
 - 初始版本发布
