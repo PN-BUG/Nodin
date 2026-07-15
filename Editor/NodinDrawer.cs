@@ -237,11 +237,15 @@ namespace Nodin.Editor
 
         // ── 分组标题栏 ──────────────────────────────────
 
-        private static void DrawGroupHeader(string title, bool expanded, bool isSubGroup, out bool clicked)
+        private static void DrawGroupHeader(string title, bool expanded, bool isSubGroup, out bool clicked, float rightReservedWidth = 0f)
         {
             clicked = false;
             var rect = EditorGUILayout.GetControlRect(GUILayout.Height(isSubGroup ? 22 : 26));
-            if (Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition))
+            // 点击检测区域排除右侧预留宽度（如 + 按钮区域）
+            var clickRect = rightReservedWidth > 0
+                ? new Rect(rect.x, rect.y, rect.width - rightReservedWidth, rect.height)
+                : rect;
+            if (Event.current.type == EventType.MouseDown && clickRect.Contains(Event.current.mousePosition))
             {
                 clicked = true;
                 Event.current.Use();
@@ -584,8 +588,8 @@ namespace Nodin.Editor
                 _dictFoldouts[foldKey] = true;
             bool expanded = _dictFoldouts[foldKey];
 
-            // ── 标题行（复用 DrawGroupHeader 样式）──
-            DrawGroupHeader($"{label}  ({dict.Count})", expanded, isSubGroup: false, out var toggled);
+            // ── 标题行（复用 DrawGroupHeader 样式，右侧预留 + 按钮区域）──
+            DrawGroupHeader($"{label}  ({dict.Count})", expanded, isSubGroup: false, out var toggled, rightReservedWidth: 32);
             if (toggled)
             {
                 _dictFoldouts[foldKey] = !expanded;
