@@ -439,7 +439,7 @@ namespace Nodin.Editor
             // Dictionary<TKey, TValue>
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
             {
-                var settingsAttr = field?.GetCustomAttribute<DictionaryDrawerSettingsAttribute>();
+                var settingsAttr = fm.Field?.GetCustomAttribute<DictionaryDrawerSettingsAttribute>();
                 DrawDictField(label, value, type, hideLabel, settingsAttr);
                 return value;
             }
