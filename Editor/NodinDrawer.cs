@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -40,6 +41,12 @@ namespace Nodin.Editor
 
         // ── 复用 GUIStyle（DrawListField 中每个列表项）──
         private static GUIStyle _listItemNumStyle;
+
+        // ── 字典折叠状态 ──
+        private readonly Dictionary<string, bool> _dictFoldouts = new();
+
+        // ── Dictionary 字段列表（用于自动序列化）──
+        private readonly FieldInfo[] _dictFields;
 
         public NodinDrawer(object target)
         {
@@ -93,6 +100,9 @@ namespace Nodin.Editor
 
             _orderedTopGroups.Sort((a, b) => groupOrders[a].CompareTo(groupOrders[b]));
 
+            // ── 收集 Dictionary 字段用于自动序列化 ──
+            _dictFields = DictSerializationHelper.CollectDictFields(_type);
+
             // ── 预计算子分组映射 ──
             _subGroupMap = new Dictionary<string, List<string>>();
             foreach (var fm in _fieldMetas)
@@ -129,6 +139,9 @@ namespace Nodin.Editor
 
         public void Draw()
         {
+            // ── Dictionary 恢复序列化备份 ──
+            DictSerializationHelper.RestoreAll(_target, _dictFields);
+
             // ── Script 字段（双击可打开脚本） ──
             if (_target is MonoBehaviour mb)
             {
@@ -152,6 +165,9 @@ namespace Nodin.Editor
             {
                 DrawTopGroup(groupName);
             }
+
+            // ── Dictionary 保存到序列化备份 ──
+            DictSerializationHelper.SaveAll(_target, _dictFields);
         }
 
         // ── 顶层分组 ────────────────────────────────────
@@ -344,6 +360,17 @@ namespace Nodin.Editor
             {
                 fm.Field.SetValue(_target, newValue);
                 InvokeOnValueChanged(fm);
+
+                // 可序列化容器（如 SerializableDictionary）编辑后需同步内部列表
+                if (newValue is ISerializationCallbackReceiver cb)
+                    cb.OnBeforeSerialize();
+
+                // Dictionary 字段：立即同步到序列化备份
+                if (fm.Field.FieldType.IsGenericType
+                    && fm.Field.FieldType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+                {
+                    DictSerializationHelper.SaveField(_target, fm.Field);
+                }
 
                 // 标记已修改并立即保存
                 if (_target is UnityEngine.Object unityObj)
@@ -551,39 +578,45 @@ namespace Nodin.Editor
             string keyLabel = settings?.KeyLabel ?? "Key";
             string valLabel = settings?.ValueLabel ?? "Value";
 
-            EditorGUILayout.BeginHorizontal();
-            if (!hideLabel)
-                EditorGUILayout.LabelField($"{label}  ({dict.Count})", EditorStyles.boldLabel);
-            GUILayout.FlexibleSpace();
+            // 折叠状态
+            string foldKey = $"{label}_{type.FullName}";
+            if (!_dictFoldouts.ContainsKey(foldKey))
+                _dictFoldouts[foldKey] = true;
+            bool expanded = _dictFoldouts[foldKey];
 
-            // 添加按钮：枚举 key 用 EnumPopup，其他用默认
-            if (keyType.IsEnum)
+            // ── 标题行（复用 DrawGroupHeader 样式）──
+            DrawGroupHeader($"{label}  ({dict.Count})", expanded, isSubGroup: false, out var toggled);
+            if (toggled)
             {
-                // 收集已使用的 key
-                var usedKeys = new HashSet<object>();
-                foreach (var k in dict.Keys) usedKeys.Add(k);
-
-                // 找到第一个未使用的枚举值
-                var allValues = Enum.GetValues(keyType);
-                object firstFree = null;
-                foreach (var ev in allValues)
-                {
-                    if (!usedKeys.Contains(ev)) { firstFree = ev; break; }
-                }
-
-                if (firstFree != null && GUILayout.Button("+", GUILayout.Width(24), GUILayout.Height(18)))
-                {
-                    object defaultVal = valType.IsValueType ? Activator.CreateInstance(valType) : null;
-                    dict[firstFree] = defaultVal;
-                    GUI.changed = true;
-                    EditorGUILayout.EndHorizontal();
-                    EditorGUILayout.Space(2);
-                    return;
-                }
+                _dictFoldouts[foldKey] = !expanded;
+                expanded = !expanded;
             }
-            else
+
+            // 右上角添加按钮（覆盖在标题行右侧）
+            var lastRect = GUILayoutUtility.GetLastRect();
+            var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 3, 24, 18);
+            bool addClicked = GUI.Button(btnRect, "+", EditorStyles.miniButton);
+
+            if (addClicked)
             {
-                if (GUILayout.Button("+", GUILayout.Width(24), GUILayout.Height(18)))
+                if (keyType.IsEnum)
+                {
+                    var usedKeys = new HashSet<object>();
+                    foreach (var k in dict.Keys) usedKeys.Add(k);
+                    var allValues = Enum.GetValues(keyType);
+                    object firstFree = null;
+                    foreach (var ev in allValues)
+                    {
+                        if (!usedKeys.Contains(ev)) { firstFree = ev; break; }
+                    }
+                    if (firstFree != null)
+                    {
+                        object defaultVal = valType.IsValueType ? Activator.CreateInstance(valType) : null;
+                        dict[firstFree] = defaultVal;
+                        GUI.changed = true;
+                    }
+                }
+                else
                 {
                     object defaultKey = keyType.IsValueType ? Activator.CreateInstance(keyType) : null;
                     if (defaultKey != null && !dict.Contains(defaultKey))
@@ -592,12 +625,11 @@ namespace Nodin.Editor
                         dict[defaultKey] = defaultVal;
                         GUI.changed = true;
                     }
-                    EditorGUILayout.EndHorizontal();
-                    EditorGUILayout.Space(2);
-                    return;
                 }
             }
-            EditorGUILayout.EndHorizontal();
+
+            // 折叠时不显示内容
+            if (!expanded) return;
 
             EditorGUILayout.BeginVertical(EditorStyles.textArea);
             EditorGUI.indentLevel++;
@@ -607,7 +639,6 @@ namespace Nodin.Editor
                 EditorGUILayout.LabelField("（空字典）", EditorStyles.centeredGreyMiniLabel);
             }
 
-            // 收集 keys 避免遍历时修改
             var keys = new object[dict.Count];
             dict.Keys.CopyTo(keys, 0);
 
@@ -616,7 +647,6 @@ namespace Nodin.Editor
                 var entryVal = dict[key];
                 EditorGUILayout.BeginHorizontal();
 
-                // Key 显示（枚举用 EnumPopup，其他用只读标签）
                 if (keyType.IsEnum)
                 {
                     EditorGUILayout.LabelField(keyLabel, EditorStyles.miniLabel, GUILayout.Width(60));
@@ -636,7 +666,8 @@ namespace Nodin.Editor
                     EditorGUILayout.LabelField($"{keyLabel}: {key}", GUILayout.Width(80));
                 }
 
-                // Value 绘制
+                // Value 绘制（带标签）
+                EditorGUILayout.LabelField(valLabel, EditorStyles.miniLabel, GUILayout.Width(60));
                 if (valType == typeof(bool))
                     dict[key] = EditorGUILayout.Toggle((bool)(entryVal ?? false));
                 else if (valType == typeof(int))
@@ -875,6 +906,254 @@ namespace Nodin.Editor
                 return list.ToArray();
             }
             return new[] { result.ToString() };
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  Dictionary 自动序列化辅助（透明持久化，用户无感）
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 自动为 Dictionary 字段提供持久化（通过 EditorPrefs）。
+    /// Draw 前恢复、Draw 后保存，用户无感。
+    /// </summary>
+    internal static class DictSerializationHelper
+    {
+        private const string PREFIX = "NodinDict_";
+
+        public static void RestoreAll(object target, FieldInfo[] dictFields)
+        {
+            if (dictFields == null || target == null) return;
+            foreach (var field in dictFields)
+                RestoreOne(target, field);
+        }
+
+        public static void SaveAll(object target, FieldInfo[] dictFields)
+        {
+            if (dictFields == null || target == null) return;
+            foreach (var field in dictFields)
+                SaveOne(target, field);
+        }
+
+        public static FieldInfo[] CollectDictFields(Type type)
+        {
+            return type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
+                .Where(f => f.FieldType.IsGenericType
+                    && f.FieldType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+                .ToArray();
+        }
+
+        public static void SaveField(object target, FieldInfo field)
+        {
+            if (!field.FieldType.IsGenericType) return;
+            if (field.FieldType.GetGenericTypeDefinition() != typeof(Dictionary<,>)) return;
+            SaveOne(target, field);
+        }
+
+        private static string GetKey(object target, FieldInfo field)
+        {
+            // 使用稳定标识符：场景路径 + GameObject 层级路径 + 组件类型 + 字段名
+            // GetInstanceID 在场景切换后会变，不可靠
+            string stableId;
+            if (target is MonoBehaviour mb && mb != null)
+            {
+                string scenePath = mb.gameObject.scene.path ?? "";
+                string goPath = GetGameObjectPath(mb.gameObject);
+                string typeName = mb.GetType().FullName;
+                stableId = $"{scenePath}|{goPath}|{typeName}";
+            }
+            else if (target is ScriptableObject so && so != null)
+            {
+                stableId = $"SO|{so.GetType().FullName}|{so.name}";
+            }
+            else
+            {
+                stableId = target.GetType().FullName + "|" + target.GetHashCode();
+            }
+            return $"{PREFIX}{stableId}_{field.Name}";
+        }
+
+        private static string GetGameObjectPath(GameObject go)
+        {
+            string path = go.name;
+            var parent = go.transform.parent;
+            while (parent != null)
+            {
+                path = parent.name + "/" + path;
+                parent = parent.parent;
+            }
+            return path;
+        }
+
+        private static void SaveOne(object target, FieldInfo field)
+        {
+            var dict = field.GetValue(target) as IDictionary;
+            if (dict == null || dict.Count == 0) return;
+
+            var args = field.FieldType.GetGenericArguments();
+            var keyType = args[0];
+            var valType = args[1];
+            var key = GetKey(target, field);
+
+            // 用换行符分隔条目（路径中不会出现换行符）
+            var entries = new List<string>();
+            foreach (DictionaryEntry entry in dict)
+            {
+                var kStr = SerializeValue(entry.Key, keyType);
+                var vStr = SerializeValue(entry.Value, valType);
+                entries.Add(kStr + "||" + vStr);
+            }
+
+            EditorPrefs.SetString(key, string.Join("\n", entries));
+        }
+
+        private static void RestoreOne(object target, FieldInfo field)
+        {
+            var dict = field.GetValue(target) as IDictionary;
+            if (dict == null || dict.Count > 0) return;
+
+            var key = GetKey(target, field);
+            var data = EditorPrefs.GetString(key, "");
+            if (string.IsNullOrEmpty(data)) return;
+
+            var args = field.FieldType.GetGenericArguments();
+            var keyType = args[0];
+            var valType = args[1];
+            var lines = data.Split('\n');
+
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrEmpty(line)) continue;
+                var parts = line.Split(new[] { "||" }, 2, StringSplitOptions.None);
+                if (parts.Length < 2) continue;
+                var k = DeserializeValue(parts[0], keyType);
+                var v = DeserializeValue(parts[1], valType);
+                if (k != null && !dict.Contains(k))
+                    dict[k] = v;
+            }
+        }
+
+        private static string SerializeValue(object value, Type type)
+        {
+            if (value == null) return "";
+            if (type.IsEnum) return "E:" + Convert.ToInt32(value);
+            if (type == typeof(int)) return "I:" + value;
+            if (type == typeof(long)) return "L:" + value;
+            if (type == typeof(float)) return "F:" + value;
+            if (type == typeof(double)) return "D:" + value;
+            if (type == typeof(bool)) return "B:" + value;
+            if (type == typeof(string)) return "S:" + value;
+            if (typeof(UnityEngine.Object).IsAssignableFrom(type))
+            {
+                var obj = value as UnityEngine.Object;
+                if (obj == null) return "O:";
+                // Transform/Component: 用场景路径+层级路径稳定标识
+                if (obj is Component comp)
+                    return "O:scene:" + GetGameObjectPath(comp.gameObject) + "@" + comp.gameObject.scene.path;
+                // GameObject: 用场景路径+层级路径
+                if (obj is GameObject go)
+                    return "O:scene:" + GetGameObjectPath(go) + "@" + go.scene.path;
+                // Asset: 用资源路径
+                var assetPath = UnityEditor.AssetDatabase.GetAssetPath(obj);
+                if (!string.IsNullOrEmpty(assetPath))
+                    return "O:asset:" + assetPath;
+                return "O:id:" + obj.GetInstanceID();
+            }
+            return "X:" + value;
+        }
+
+        private static object DeserializeValue(string str, Type type)
+        {
+            if (string.IsNullOrEmpty(str)) return type.IsValueType ? Activator.CreateInstance(type) : null;
+
+            // 解析类型前缀
+            var colonIdx = str.IndexOf(':');
+            if (colonIdx < 0) return ParseBasic(str, type);
+            var prefix = str.Substring(0, colonIdx);
+            var content = str.Substring(colonIdx + 1);
+
+            switch (prefix)
+            {
+                case "I": return int.TryParse(content, out var i) ? i : 0;
+                case "F": return float.TryParse(content, out var f) ? f : 0f;
+                case "L": return long.TryParse(content, out var l) ? l : 0L;
+                case "D": return double.TryParse(content, out var d) ? d : 0.0;
+                case "B": return bool.TryParse(content, out var b) && b;
+                case "S": return content;
+                case "E": return int.TryParse(content, out var ei) ? Enum.ToObject(type, ei) : Activator.CreateInstance(type);
+                case "O": return DeserializeObject(content, type);
+                default: return ParseBasic(str, type);
+            }
+        }
+
+        private static object ParseBasic(string str, Type type)
+        {
+            if (type == typeof(int)) return int.TryParse(str, out var i) ? i : 0;
+            if (type == typeof(float)) return float.TryParse(str, out var f) ? f : 0f;
+            if (type.IsEnum) return int.TryParse(str, out var ei) ? Enum.ToObject(type, ei) : Activator.CreateInstance(type);
+            return null;
+        }
+
+        private static object DeserializeObject(string content, Type type)
+        {
+            // scene:GameObjPath@ScenePath
+            if (content.StartsWith("scene:"))
+            {
+                var parts = content.Substring(6).Split('@');
+                var goPath = parts[0];
+                var scenePath = parts.Length > 1 ? parts[1] : "";
+                var go = FindGameObjectByPath(goPath, scenePath);
+                if (go == null) return null;
+                if (typeof(Transform).IsAssignableFrom(type)) return go.transform;
+                if (type == typeof(GameObject)) return go;
+                return go.GetComponent(type);
+            }
+            // asset:AssetPath
+            if (content.StartsWith("asset:"))
+            {
+                var assetPath = content.Substring(6);
+                return UnityEditor.AssetDatabase.LoadAssetAtPath(assetPath, type);
+            }
+            // id:InstanceID (回退)
+            if (content.StartsWith("id:"))
+            {
+                var idStr = content.Substring(3);
+                return int.TryParse(idStr, out var id) ? EditorUtility.InstanceIDToObject(id) : null;
+            }
+            return null;
+        }
+
+        private static GameObject FindGameObjectByPath(string goPath, string scenePath)
+        {
+            // 优先在指定场景中查找
+            if (!string.IsNullOrEmpty(scenePath))
+            {
+                var scene = UnityEditor.SceneManagement.EditorSceneManager.GetSceneByPath(scenePath);
+                if (scene.IsValid())
+                {
+                    foreach (var root in scene.GetRootGameObjects())
+                    {
+                        if (root.name + "/" == goPath.Substring(0, root.name.Length + 1) || root.name == goPath)
+                        {
+                            var target = root.transform.Find(goPath.Substring(root.name.Length).TrimStart('/'));
+                            if (target != null) return target.gameObject;
+                            if (root.name == goPath) return root;
+                        }
+                    }
+                }
+            }
+            // 回退：在所有场景中查找
+            for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+            {
+                var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
+                foreach (var root in scene.GetRootGameObjects())
+                {
+                    if (root.name == goPath) return root;
+                    var target = root.transform.Find(goPath.Substring(root.name.Length).TrimStart('/'));
+                    if (target != null) return target.gameObject;
+                }
+            }
+            return null;
         }
     }
 }
