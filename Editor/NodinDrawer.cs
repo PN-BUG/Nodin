@@ -45,10 +45,11 @@ namespace Nodin.Editor
         {
             _target = target;
             _type = target.GetType();
-
             // ── 收集字段并缓存所有 Attribute ──
             var fields = _type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
-                .Where(f => f.IsPublic || f.GetCustomAttribute<ShowInInspectorAttribute>() != null)
+                .Where(f => f.IsPublic
+                    || f.GetCustomAttribute<ShowInInspectorAttribute>() != null
+                    || f.GetCustomAttribute<SerializeField>() != null)
                 .Where(f => f.GetCustomAttribute<HideInInspector>() == null || f.GetCustomAttribute<ShowInInspectorAttribute>() != null)
                 .ToArray();
 
@@ -435,6 +436,14 @@ namespace Nodin.Editor
                 return value;
             }
 
+            // Dictionary<TKey, TValue>
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+            {
+                var settingsAttr = field?.GetCustomAttribute<DictionaryDrawerSettingsAttribute>();
+                DrawDictField(label, value, type, hideLabel, settingsAttr);
+                return value;
+            }
+
             // 兜底
             EditorGUILayout.LabelField(label, value?.ToString() ?? "null");
             return value;
@@ -501,6 +510,139 @@ namespace Nodin.Editor
                 if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16)))
                 {
                     list.RemoveAt(i);
+                    GUI.changed = true;
+                    EditorGUILayout.EndHorizontal();
+                    break;
+                }
+
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUI.indentLevel--;
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(2);
+        }
+
+        // ── Dictionary 绘制 ───────────────────────────────
+
+        private void DrawDictField(string label, object value, Type type, bool hideLabel, DictionaryDrawerSettingsAttribute settings)
+        {
+            if (value == null) return;
+            var keyType = type.GetGenericArguments()[0];
+            var valType = type.GetGenericArguments()[1];
+            var dict = (System.Collections.IDictionary)value;
+
+            string keyLabel = settings?.KeyLabel ?? "Key";
+            string valLabel = settings?.ValueLabel ?? "Value";
+
+            EditorGUILayout.BeginHorizontal();
+            if (!hideLabel)
+                EditorGUILayout.LabelField($"{label}  ({dict.Count})", EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+
+            // 添加按钮：枚举 key 用 EnumPopup，其他用默认
+            if (keyType.IsEnum)
+            {
+                // 收集已使用的 key
+                var usedKeys = new HashSet<object>();
+                foreach (var k in dict.Keys) usedKeys.Add(k);
+
+                // 找到第一个未使用的枚举值
+                var allValues = Enum.GetValues(keyType);
+                object firstFree = null;
+                foreach (var ev in allValues)
+                {
+                    if (!usedKeys.Contains(ev)) { firstFree = ev; break; }
+                }
+
+                if (firstFree != null && GUILayout.Button("+", GUILayout.Width(24), GUILayout.Height(18)))
+                {
+                    object defaultVal = valType.IsValueType ? Activator.CreateInstance(valType) : null;
+                    dict[firstFree] = defaultVal;
+                    GUI.changed = true;
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.Space(2);
+                    return;
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("+", GUILayout.Width(24), GUILayout.Height(18)))
+                {
+                    object defaultKey = keyType.IsValueType ? Activator.CreateInstance(keyType) : null;
+                    if (defaultKey != null && !dict.Contains(defaultKey))
+                    {
+                        object defaultVal = valType.IsValueType ? Activator.CreateInstance(valType) : null;
+                        dict[defaultKey] = defaultVal;
+                        GUI.changed = true;
+                    }
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.Space(2);
+                    return;
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginVertical(EditorStyles.textArea);
+            EditorGUI.indentLevel++;
+
+            if (dict.Count == 0)
+            {
+                EditorGUILayout.LabelField("（空字典）", EditorStyles.centeredGreyMiniLabel);
+            }
+
+            // 收集 keys 避免遍历时修改
+            var keys = new object[dict.Count];
+            dict.Keys.CopyTo(keys, 0);
+
+            foreach (var key in keys)
+            {
+                var entryVal = dict[key];
+                EditorGUILayout.BeginHorizontal();
+
+                // Key 显示（枚举用 EnumPopup，其他用只读标签）
+                if (keyType.IsEnum)
+                {
+                    EditorGUILayout.LabelField(keyLabel, EditorStyles.miniLabel, GUILayout.Width(60));
+                    EditorGUI.BeginDisabledGroup(true);
+                    EditorGUILayout.EnumPopup((Enum)key);
+                    EditorGUI.EndDisabledGroup();
+                }
+                else if (keyType == typeof(string))
+                {
+                    EditorGUILayout.LabelField(keyLabel, EditorStyles.miniLabel, GUILayout.Width(60));
+                    EditorGUI.BeginDisabledGroup(true);
+                    EditorGUILayout.TextField((string)key ?? "");
+                    EditorGUI.EndDisabledGroup();
+                }
+                else
+                {
+                    EditorGUILayout.LabelField($"{keyLabel}: {key}", GUILayout.Width(80));
+                }
+
+                // Value 绘制
+                if (valType == typeof(bool))
+                    dict[key] = EditorGUILayout.Toggle((bool)(entryVal ?? false));
+                else if (valType == typeof(int))
+                    dict[key] = EditorGUILayout.IntField((int)(entryVal ?? 0));
+                else if (valType == typeof(float))
+                    dict[key] = EditorGUILayout.FloatField((float)(entryVal ?? 0f));
+                else if (valType == typeof(string))
+                    dict[key] = EditorGUILayout.TextField((string)entryVal ?? "");
+                else if (valType == typeof(Vector3))
+                    dict[key] = EditorGUILayout.Vector3Field("", (Vector3)(entryVal ?? Vector3.zero));
+                else if (valType == typeof(Vector2))
+                    dict[key] = EditorGUILayout.Vector2Field("", (Vector2)(entryVal ?? Vector2.zero));
+                else if (valType == typeof(Color))
+                    dict[key] = EditorGUILayout.ColorField((Color)(entryVal ?? Color.white), GUILayout.Width(60));
+                else if (typeof(UnityEngine.Object).IsAssignableFrom(valType))
+                    dict[key] = EditorGUILayout.ObjectField((UnityEngine.Object)entryVal, valType, true);
+                else
+                    EditorGUILayout.LabelField(entryVal?.ToString() ?? "null");
+
+                if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16)))
+                {
+                    dict.Remove(key);
                     GUI.changed = true;
                     EditorGUILayout.EndHorizontal();
                     break;

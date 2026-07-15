@@ -275,4 +275,16 @@ namespace Nodin
         public bool ShowIndexLabels { get; set; }
         public bool HideAddButton { get; set; }
     }
+
+    /// <summary>Dictionary 字段的绘制设置</summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
+    public class DictionaryDrawerSettingsAttribute : Attribute
+    {
+        /// <summary>Key 列显示的标签文本</summary>
+        public string KeyLabel { get; set; }
+        /// <summary>Value 列显示的标签文本</summary>
+        public string ValueLabel { get; set; }
+        /// <summary>是否显示 Key 列标签（默认 true）</summary>
+        public bool IsReadOnly { get; set; }
+    }
 }

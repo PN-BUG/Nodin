@@ -64,4 +64,24 @@ namespace Nodin.Editor
             _drawer?.Draw();
         }
     }
+
+    /// <summary>
+    /// NodinMonoBehaviour 编辑器桩。
+    /// 继承 NodinMonoBehaviour 的类型自动获得 Nodin 属性绘制支持。
+    /// </summary>
+    [CustomEditor(typeof(NodinMonoBehaviour), true)]
+    public class NodinMonoBehaviourEditor : UnityEditor.Editor
+    {
+        private NodinDrawer _drawer;
+
+        private void OnEnable()
+        {
+            _drawer = new NodinDrawer(target);
+        }
+
+        public override void OnInspectorGUI()
+        {
+            _drawer?.Draw();
+        }
+    }
 }
