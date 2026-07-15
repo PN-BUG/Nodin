@@ -129,6 +129,22 @@ namespace Nodin.Editor
 
         public void Draw()
         {
+            // ── Script 字段（双击可打开脚本） ──
+            if (_target is MonoBehaviour mb)
+            {
+                var monoScript = MonoScript.FromMonoBehaviour(mb);
+                EditorGUI.BeginDisabledGroup(true);
+                EditorGUILayout.ObjectField("Script", monoScript, typeof(MonoScript), false);
+                EditorGUI.EndDisabledGroup();
+            }
+            else if (_target is ScriptableObject so)
+            {
+                var monoScript = MonoScript.FromScriptableObject(so);
+                EditorGUI.BeginDisabledGroup(true);
+                EditorGUILayout.ObjectField("Script", monoScript, typeof(MonoScript), false);
+                EditorGUI.EndDisabledGroup();
+            }
+
             DrawUngroupedFields();
             DrawUngroupedButtons();
 
