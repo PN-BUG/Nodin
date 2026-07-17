@@ -642,6 +642,15 @@ namespace Nodin.Editor
             {
                 EditorGUILayout.LabelField("（空字典）", EditorStyles.centeredGreyMiniLabel);
             }
+            else
+            {
+                // ── 列标题行 ──
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField(keyLabel, EditorStyles.boldLabel, GUILayout.Width(80));
+                EditorGUILayout.LabelField(valLabel, EditorStyles.boldLabel);
+                GUILayout.Space(22); // 为删除按钮预留空间
+                EditorGUILayout.EndHorizontal();
+            }
 
             var keys = new object[dict.Count];
             dict.Keys.CopyTo(keys, 0);
@@ -653,25 +662,20 @@ namespace Nodin.Editor
 
                 if (keyType.IsEnum)
                 {
-                    EditorGUILayout.LabelField(keyLabel, EditorStyles.miniLabel, GUILayout.Width(60));
                     EditorGUI.BeginDisabledGroup(true);
-                    EditorGUILayout.EnumPopup((Enum)key);
+                    EditorGUILayout.EnumPopup((Enum)key, GUILayout.Width(80));
                     EditorGUI.EndDisabledGroup();
                 }
                 else if (keyType == typeof(string))
                 {
-                    EditorGUILayout.LabelField(keyLabel, EditorStyles.miniLabel, GUILayout.Width(60));
                     EditorGUI.BeginDisabledGroup(true);
-                    EditorGUILayout.TextField((string)key ?? "");
+                    EditorGUILayout.TextField((string)key ?? "", GUILayout.Width(80));
                     EditorGUI.EndDisabledGroup();
                 }
                 else
                 {
-                    EditorGUILayout.LabelField($"{keyLabel}: {key}", GUILayout.Width(80));
+                    EditorGUILayout.LabelField($"{key}", GUILayout.Width(80));
                 }
-
-                // Value 绘制（带标签）
-                EditorGUILayout.LabelField(valLabel, EditorStyles.miniLabel, GUILayout.Width(60));
                 if (valType == typeof(bool))
                     dict[key] = EditorGUILayout.Toggle((bool)(entryVal ?? false));
                 else if (valType == typeof(int))

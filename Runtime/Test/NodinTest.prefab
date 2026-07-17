@@ -1,0 +1,110 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &3986477700595195066
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8019605592410396980}
+  - component: {fileID: 5740476231291341364}
+  m_Layer: 0
+  m_Name: NodinTest
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8019605592410396980
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3986477700595195066}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5740476231291341364
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3986477700595195066}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 27a32804ff81cad4f854a97f3aa1700b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NodinTest
+  _dictFieldNames:
+  - characterLevels
+  - weaponDamage
+  _dictKeyJsons:
+  - '{}'
+  - '{}'
+  _dictValueObjects:
+  - {fileID: 0}
+  - {fileID: 0}
+  _dictValueJsons:
+  - '{}'
+  - '{}'
+  _dictValueIsObject: 0000
+  labeledField: "\u8FD9\u4E2A\u5B57\u6BB5\u7528\u4E86 [LabelText]"
+  hiddenLabelField: "\u8FD9\u4E2A\u5B57\u6BB5\u9690\u85CF\u4E86\u6807\u7B7E"
+  labeledInt: 42
+  labeledFloat: 3.14
+  infoField: 
+  warningField: 
+  errorField: 
+  conditionalInfoField: 
+  foldA1: "\u5206\u7EC4 A\uFF08\u9ED8\u8BA4\u5C55\u5F00\uFF09"
+  foldA2: "\u5206\u7EC4 A \u7684\u7B2C\u4E8C\u4E2A\u5B57\u6BB5"
+  foldB1: "\u5206\u7EC4 B\uFF08\u9ED8\u8BA4\u6298\u53E0\uFF09"
+  foldB2: "\u5206\u7EC4 B \u7684\u7B2C\u4E8C\u4E2A\u5B57\u6BB5"
+  subField1: "\u7236\u5206\u7EC4\u4E0B\u7684\u5B50\u5206\u7EC41"
+  subField2: "\u7236\u5206\u7EC4\u4E0B\u7684\u5B50\u5206\u7EC42"
+  boxField1: "\u5728\u76D2\u5B50\u5206\u7EC4\u4E2D"
+  boxField2: 100
+  showSecret: 0
+  secretContent: "\u53EA\u6709\u52FE\u9009\u300C\u663E\u793A\u79D8\u5BC6\u300D\u624D\u80FD\u770B\u5230\u6211"
+  hideTestField: "\u5F53\u300C\u663E\u793A\u79D8\u5BC6\u300D\u52FE\u9009\u65F6\u6211\u4F1A\u9690\u85CF"
+  colorOption: 0
+  blueOnlyField: "\u53EA\u6709\u9009 Blue \u65F6\u624D\u663E\u793A"
+  greenOnlyField: "\u53EA\u6709\u9009 Green \u65F6\u624D\u663E\u793A"
+  lockEditing: 0
+  editableField: "\u672A\u9501\u5B9A\u65F6\u53EF\u7F16\u8F91"
+  disabledField: "\u9501\u5B9A\u540E\u53D8\u7070\u4E0D\u53EF\u7F16\u8F91"
+  readOnlyText: "\u8FD9\u4E2A\u5B57\u6BB5\u4E0D\u53EF\u7F16\u8F91"
+  readOnlyNumber: 999
+  multiLineText: "\u8FD9\u662F\u7B2C\u4E00\u884C\n\u8FD9\u662F\u7B2C\u4E8C\u884C\n\u8FD9\u662F\u7B2C\u4E09\u884C\n\u8FD9\u662F\u7B2C\u56DB\u884C\n\u8FD9\u662F\u7B2C\u4E94\u884C"
+  shortMultiLine: "\u7B80\u77ED\u7684\n\u591A\u884C\u6587\u672C"
+  greenField: "\u8FD9\u4E2A\u5B57\u6BB5\u662F\u7EFF\u8272\u7684"
+  orangeField: "\u8FD9\u4E2A\u5B57\u6BB5\u662F\u6A59\u8272\u7684\uFF08Hex \u989C\u8272\uFF09"
+  purpleField: 777
+  selectedWeapon: "\u5251"
+  selectedPotion: "\u6CBB\u7597\u836F\u6C34"
+  folderPath: Assets/Game
+  absolutePath: 
+  callbackField: "\u4FEE\u6539\u6211\u4F1A\u89E6\u53D1\u56DE\u8C03"
+  indexedList:
+  - "\u5143\u7D200"
+  - "\u5143\u7D201"
+  - "\u5143\u7D202"
+  nonDraggableList: 0a000000140000001e000000
+  noAddList:
+  - 1.1
+  - 2.2
+  - 3.3
+  playerName: "\u52C7\u8005"
+  _customGuiPlaceholder: 
+  assetsOnlyField: {fileID: 0}
+  mixedField: "\u591A\u6807\u7B7E\u6DF7\u5408\u4F7F\u7528"
+  conditionalColoredField: "\u6761\u4EF6\u663E\u793A + \u91D1\u8272"

@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- **版本**: 1.1.0
+- **版本**: 1.2.0
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -40,6 +40,32 @@
 - **`[AssetsOnly]`** - 限制 Object 引用仅允许 Asset（非场景对象）
 - **`[OnValueChanged]`** - 字段值改变后回调指定方法
 - **`[ListDrawerSettings]`** - List 字段的绘制设置
+- **`[DictionaryDrawerSettings]`** - Dictionary 字段的绘制设置（自定义 Key/Value 列标签）
+
+## 基类
+
+### NodinMonoBehaviour
+继承此类即可让 MonoBehaviour 自动支持 Nodin 属性绘制，同时**自动处理 Dictionary 字段的序列化**（Unity 原生不支持 Dictionary 序列化）。
+
+```csharp
+using UnityEngine;
+using Nodin;
+using System.Collections.Generic;
+
+public class EnemyManager : NodinMonoBehaviour
+{
+    [LabelText("敌人等级表")]
+    [DictionaryDrawerSettings(KeyLabel = "敌人名", ValueLabel = "等级")]
+    public Dictionary<string, int> enemyLevels = new Dictionary<string, int>
+    {
+        { "史莱姆", 1 },
+        { "哥布林", 5 },
+        { "巨龙", 50 }
+    };
+}
+```
+
+> **注意**: 使用 `Dictionary` 字段时**必须继承 `NodinMonoBehaviour`**，否则序列化数据会在 Play Mode 切换时丢失。`NodinMonoBehaviour` 实现了 `ISerializationCallbackReceiver`，通过扁平列表自动持久化所有 Dictionary 字段。
 
 ## 安装方法
 
@@ -214,6 +240,37 @@ public class InventorySystem : MonoBehaviour
 }
 ```
 
+### 6. Dictionary 序列化示例
+
+```csharp
+using UnityEngine;
+using Nodin;
+using System.Collections.Generic;
+
+public class GameConfig : NodinMonoBehaviour
+{
+    [FoldoutGroup("敌人配置")]
+    [LabelText("敌人等级表")]
+    [DictionaryDrawerSettings(KeyLabel = "敌人名", ValueLabel = "等级")]
+    public Dictionary<string, int> enemyLevels = new Dictionary<string, int>
+    {
+        { "史莱姆", 1 },
+        { "哥布林", 5 },
+        { "巨龙", 50 }
+    };
+
+    [FoldoutGroup("武器配置")]
+    [LabelText("武器伤害表")]
+    [DictionaryDrawerSettings(KeyLabel = "武器", ValueLabel = "伤害")]
+    public Dictionary<string, float> weaponDamage = new Dictionary<string, float>
+    {
+        { "铁剑", 15f },
+        { "长弓", 18f },
+        { "法杖", 25f }
+    };
+}
+```
+
 ## 支持的数据类型
 
 Nodin 支持以下 Unity 数据类型的自动绘制：
@@ -225,6 +282,7 @@ Nodin 支持以下 Unity 数据类型的自动绘制：
 - **枚举类型**: 所有枚举类型
 - **Unity 对象**: 所有继承自 `UnityEngine.Object` 的类型
 - **列表类型**: `List<T>` 支持上述所有类型
+- **字典类型**: `Dictionary<TKey, TValue>` 需继承 `NodinMonoBehaviour` 以支持序列化
 
 ## 高级功能
 
@@ -327,6 +385,31 @@ public class DropdownExample : MonoBehaviour
 }
 ```
 
+## 测试脚本
+
+`Runtime/Test/NodinTest.cs` 覆盖了 Nodin 所有 18 种标签效果的测试，挂载到任意 GameObject 即可在 Inspector 中查看效果：
+
+| 分组 | 测试内容 |
+|------|----------|
+| 标签 & 显示 | `[LabelText]`、`[HideLabel]` |
+| 信息提示 | `[InfoBox]` Info/Warning/Error + 条件显示 |
+| 折叠分组 | `[FoldoutGroup]` 展开/折叠 + 子分组 |
+| 盒子分组 | `[BoxGroup]` |
+| 条件显示 | `[ShowIf]`、`[HideIf]` 布尔和枚举条件 |
+| 条件启用 | `[EnableIf]`、`[DisableIf]` |
+| 只读字段 | `[ReadOnly]` |
+| 多行文本 | `[MultiLineProperty]` |
+| 按钮 | `[Button]` 普通/小/大/带颜色 |
+| GUI 颜色 | `[GUIColor]` RGB 和 Hex |
+| 非 Public 字段 | `[ShowInInspector]` |
+| 下拉列表 | `[ValueDropdown]` |
+| 路径选择 | `[FolderPath]` |
+| 值改变回调 | `[OnValueChanged]` |
+| 列表设置 | `[ListDrawerSettings]` |
+| 字典设置 | `[DictionaryDrawerSettings]` |
+| 自定义 GUI | `[OnInspectorGUI]` |
+| 资产限制 | `[AssetsOnly]` |
+
 ## 注意事项
 
 1. **命名空间**: 所有特性都在 `Nodin` 命名空间下，使用时需要添加 `using Nodin;`
@@ -342,6 +425,8 @@ public class DropdownExample : MonoBehaviour
 6. **子分组**: 使用 '/' 分隔符创建子分组，例如 `[FoldoutGroup("设置/高级")]`
 
 7. **按钮参数**: `[Button]` 标记的方法支持默认参数，无参方法可直接调用
+
+8. **Dictionary 序列化**: 使用 `Dictionary` 字段时必须继承 `NodinMonoBehaviour`，否则数据会在序列化时丢失
 
 ## 常见问题
 
@@ -374,7 +459,22 @@ public string selected;
 private string[] GetOptions() => new[] { "选项1", "选项2", "选项3" };
 ```
 
+### Q: Dictionary 字段数据丢失怎么办？
+A: 必须继承 `NodinMonoBehaviour` 而非 `MonoBehaviour`。`NodinMonoBehaviour` 实现了 `ISerializationCallbackReceiver`，会在序列化时自动保存 Dictionary 数据。
+
+### Q: 如何自定义 Dictionary 的列标签？
+A: 使用 `[DictionaryDrawerSettings]` 特性：
+```csharp
+[DictionaryDrawerSettings(KeyLabel = "名称", ValueLabel = "数值")]
+public Dictionary<string, int> data;
+```
+
 ## 更新日志
+
+### v1.2.0 (2026-07-18)
+- 新增 `[DictionaryDrawerSettings]` 特性，支持自定义 Dictionary 的 Key/Value 列标签和只读模式
+- 新增 `NodinMonoBehaviour` 基类，实现 Dictionary 字段的自动序列化（`ISerializationCallbackReceiver`）
+- 新增 `NodinTest.cs` 测试脚本，覆盖所有 18 种标签效果
 
 ### v1.1.0 (2026-07-11)
 - NodinDrawer 重构：构造时缓存所有字段/方法的 Attribute 元数据（`FieldMeta`/`MethodMeta`），消除每帧重复反射调用
