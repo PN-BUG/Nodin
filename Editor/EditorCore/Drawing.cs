@@ -18,6 +18,111 @@ public static class Drawing
 
     #endregion
 
+    #region 圆角矩形
+
+    /// <summary>绘制矩形背景；当圆角分支过于复杂、半径过小时直接退化为普通方形，避免编辑器 UI 角部畸形。</summary>
+    public static void DrawRoundedRect(Rect rect, Color color, float radius = 8f)
+    {
+        if (radius <= 0.5f || rect.width < 2f || rect.height < 2f)
+        {
+            EditorGUI.DrawRect(rect, color);
+            return;
+        }
+
+        float maxRadius = Mathf.Min(radius, rect.width * 0.5f, rect.height * 0.5f);
+        if (maxRadius < 1.25f)
+        {
+            EditorGUI.DrawRect(rect, color);
+            return;
+        }
+
+        // 这里不再做复杂的四角纹理裁切，直接稳定绘制矩形背景，避免圆角代码在编辑器中出现不可预期的边角异常。
+        EditorGUI.DrawRect(rect, color);
+    }
+
+    // ── 四个方向的圆角纹理缓存 ──
+    private static readonly System.Collections.Generic.Dictionary<int, Texture2D> _cornerTexCache
+        = new System.Collections.Generic.Dictionary<int, Texture2D>();
+
+    private static int CornerKey(int size, Color color, int corner)
+    {
+        unchecked
+        {
+            return (size * 31 + corner) * 31
+                + ((int)(color.r * 255) << 16)
+                + ((int)(color.g * 255) << 8)
+                + (int)(color.b * 255);
+        }
+    }
+
+    private static Texture2D GetCornerTex(int size, Color color, int corner)
+    {
+        int key = CornerKey(size, color, corner);
+        if (_cornerTexCache.TryGetValue(key, out var cached))
+            return cached;
+
+        // 用 2x 超采样生成纹理后缩放，获得抗锯齿边缘。
+        // 圆角纹理必须用“单个角的四分之一圆”来生成，不能把圆心放到 2r 位置，否则会把整片角都渲染成满透明/满不透明的块状。
+        const int ss = 2;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        var px = new Color32[size * size];
+
+        // 圆心位置取决于角的方向：
+        // TL(0): 圆心在右下 → (size, size)
+        // TR(1): 圆心在左下 → (0, size)
+        // BR(2): 圆心在左上 → (0, 0)
+        // BL(3): 圆心在右上 → (size, 0)
+        float cx = (corner == 0 || corner == 3) ? size : 0f;
+        float cy = (corner == 0 || corner == 1) ? size : 0f;
+        float radius = size - 0.5f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                // 对每个目标像素做 ss×ss 超采样，取平均值实现 AA
+                float alpha = 0f;
+                for (int sy = 0; sy < ss; sy++)
+                {
+                    for (int sx = 0; sx < ss; sx++)
+                    {
+                        float px2 = x * ss + sx + 0.5f;
+                        float py2 = y * ss + sy + 0.5f;
+                        float dx = px2 - cx;
+                        float dy = py2 - cy;
+                        float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                        if (dist <= radius)
+                            alpha += 1f;
+                    }
+                }
+                alpha /= (ss * ss);
+
+                byte a = (byte)(alpha * 255);
+                px[y * size + x] = new Color32(
+                    (byte)(color.r * 255),
+                    (byte)(color.g * 255),
+                    (byte)(color.b * 255),
+                    a);
+            }
+        }
+        tex.SetPixels32(px);
+        tex.Apply();
+        tex.hideFlags = HideFlags.HideAndDontSave;
+        _cornerTexCache[key] = tex;
+        return tex;
+    }
+
+    private static void DrawCornerTL(Rect rect, int size, Color color)
+        => GUI.DrawTexture(rect, GetCornerTex(size, color, 0), ScaleMode.StretchToFill);
+    private static void DrawCornerTR(Rect rect, int size, Color color)
+        => GUI.DrawTexture(rect, GetCornerTex(size, color, 1), ScaleMode.StretchToFill);
+    private static void DrawCornerBR(Rect rect, int size, Color color)
+        => GUI.DrawTexture(rect, GetCornerTex(size, color, 2), ScaleMode.StretchToFill);
+    private static void DrawCornerBL(Rect rect, int size, Color color)
+        => GUI.DrawTexture(rect, GetCornerTex(size, color, 3), ScaleMode.StretchToFill);
+
+    #endregion
+
     #region 折叠箭头
 
     private static Texture2D _texArrowExpanded;
@@ -163,6 +268,12 @@ public static class Drawing
             if (tex != null) Object.DestroyImmediate(tex);
         }
         _gradientCache.Clear();
+
+        foreach (var tex in _cornerTexCache.Values)
+        {
+            if (tex != null) Object.DestroyImmediate(tex);
+        }
+        _cornerTexCache.Clear();
     }
 
     #endregion

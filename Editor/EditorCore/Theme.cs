@@ -10,7 +10,6 @@ using UnityEngine;
 public static class Theme
 {
     #region 深色主题配色
-    // 统一引用 HubPalette 单一来源，保留 ClrXxx 别名以兼容现有代码
     public static readonly Color ClrBg           = Palette.Bg;
     public static readonly Color ClrLeftBg       = Palette.LeftBg;
     public static readonly Color ClrRightBg      = Palette.RightBg;
@@ -29,56 +28,71 @@ public static class Theme
     public static readonly Color ClrBtnHover     = Palette.BtnHover;
     #endregion
 
-    #region 分类配色（已知分类 → 固定颜色）
+    #region 分类配色（语义化 5 色系）
+    // ── 蓝 = 创建/构建 / 青-绿 = 数据/管理 / 琥珀 = 工具/配置 / 玫瑰 = 调试/危险 / 石板 = 中性 ──
     public static readonly Dictionary<string, Color> CategoryColors = new Dictionary<string, Color>(StringComparer.Ordinal)
     {
-        { "框架初始化", new Color(0.35f, 0.75f, 0.45f, 1f) },
-        { "数据管理",   new Color(0.90f, 0.65f, 0.25f, 1f) },
-        { "面板管理",   new Color(0.55f, 0.45f, 0.85f, 1f) },
-        { "资产工具",   new Color(0.30f, 0.65f, 0.80f, 1f) },
-        { "编辑器工具", new Color(0.80f, 0.45f, 0.35f, 1f) },
-        { "文件工具",   new Color(0.45f, 0.70f, 0.55f, 1f) },
-        { "字体工具",   new Color(0.75f, 0.50f, 0.70f, 1f) },
-        { "媒体工具",   new Color(0.85f, 0.55f, 0.40f, 1f) },
-        { "UI 工具",   new Color(0.40f, 0.75f, 0.85f, 1f) },
-        { "调试工具",   new Color(0.85f, 0.40f, 0.55f, 1f) },
-        { "路径工具",   new Color(0.50f, 0.60f, 0.75f, 1f) },
-        { "文本工具",   new Color(0.35f, 0.70f, 0.75f, 1f) },
+        { "框架初始化",   new Color(0.345f, 0.569f, 0.910f, 1f) }, // Blue — 框架核心
+        { "数据管理",     new Color(0.282f, 0.690f, 0.690f, 1f) }, // Teal — 数据
+        { "面板管理",     new Color(0.400f, 0.529f, 0.729f, 1f) }, // Slate-Blue — 中性面板
+        { "资产工具",     new Color(0.282f, 0.690f, 0.404f, 1f) }, // Emerald — 资产
+        { "编辑器工具",   new Color(0.580f, 0.490f, 0.820f, 1f) }, // Violet — 编辑器
+        { "文件工具",     new Color(0.843f, 0.620f, 0.220f, 1f) }, // Amber — 文件
+        { "字体工具",     new Color(0.780f, 0.435f, 0.608f, 1f) }, // Pink — 字体
+        { "媒体工具",     new Color(0.804f, 0.706f, 0.290f, 1f) }, // Yellow — 媒体
+        { "UI 工具",     new Color(0.345f, 0.569f, 0.910f, 1f) }, // Blue — UI
+        { "调试工具",     new Color(0.808f, 0.376f, 0.443f, 1f) }, // Rose — 调试
+        { "路径工具",     new Color(0.400f, 0.529f, 0.729f, 1f) }, // Slate-Blue — 路径
+        { "文本工具",     new Color(0.282f, 0.690f, 0.690f, 1f) }, // Teal — 文本
+        { "包管理工具",   new Color(0.580f, 0.490f, 0.820f, 1f) }, // Violet — 包管理
+        { "项目工具",     new Color(0.345f, 0.569f, 0.910f, 1f) }, // Blue — 项目
+        { "构建工具",     new Color(0.282f, 0.690f, 0.404f, 1f) }, // Emerald — 构建
+        { "数据处理",     new Color(0.282f, 0.690f, 0.690f, 1f) }, // Teal — 数据处理
+        { "序列化工具",   new Color(0.804f, 0.706f, 0.290f, 1f) }, // Yellow — 序列化
     };
     #endregion
 
     #region 分类图标（Unity 版本自适应）
-    // ── 分类图标（根据 Unity 版本选择）+ 用 Emoji（2022- 用 BMP 安全字符）──
     private static readonly Dictionary<string, string> _categoryIconsEmoji = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        { "框架初始化", "⚙"   },
-        { "数据管理",   "📊" },
-        { "面板管理",   "📋" },
-        { "资产工具",   "📦" },
-        { "编辑器工具", "🔧" },
-        { "文件工具",   "📂" },
-        { "字体工具",   "🔤" },
-        { "媒体工具",   "🎬" },
-        { "UI 工具",   "🎨" },
-        { "调试工具",   "🐛" },
-        { "路径工具",   "🗺" },
-        { "文本工具",   "📝" },
+        { "框架初始化",   "⚙"   },
+        { "数据管理",     "📊" },
+        { "面板管理",     "📋" },
+        { "资产工具",     "📦" },
+        { "编辑器工具",   "🔧" },
+        { "文件工具",     "📂" },
+        { "字体工具",     "🔤" },
+        { "媒体工具",     "🎬" },
+        { "UI 工具",     "🎨" },
+        { "调试工具",     "🐛" },
+        { "路径工具",     "🗺" },
+        { "文本工具",     "📝" },
+        { "包管理工具",   "📦" },
+        { "项目工具",     "📦" },
+        { "构建工具",     "🔨" },
+        { "数据处理",     "📊" },
+        { "序列化工具",   "🔗" },
     };
 
     private static readonly Dictionary<string, string> _categoryIconsLegacy = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        { "框架初始化", "⚙"   },
-        { "数据管理",   "▣" },
-        { "面板管理",   "▤" },
-        { "资产工具",   "◆" },
-        { "编辑器工具", "✎" },
-        { "文件工具",   "►" },
-        { "字体工具",   "A" },
-        { "媒体工具",   "▮" },
-        { "UI 工具",   "◜" },
-        { "调试工具",   "●" },
-        { "路径工具",   "◇" },
-        { "文本工具",   "T" },
+        { "框架初始化",   "⚙"   },
+        { "数据管理",     "▣" },
+        { "面板管理",     "▤" },
+        { "资产工具",     "◆" },
+        { "编辑器工具",   "✎" },
+        { "文件工具",     "►" },
+        { "字体工具",     "A" },
+        { "媒体工具",     "▮" },
+        { "UI 工具",     "◜" },
+        { "调试工具",     "●" },
+        { "路径工具",     "◇" },
+        { "文本工具",     "T" },
+        { "包管理工具",   "◆" },
+        { "项目工具",     "◆" },
+        { "构建工具",     "▣" },
+        { "数据处理",     "▣" },
+        { "序列化工具",   "◇" },
     };
 
     private static bool _unityVersionChecked;
@@ -113,15 +127,15 @@ public static class Theme
     #endregion
 
     #region 未知分类调色板
-    // ── 未知分类调色板（自动循环分配）──
+    // ── 未知分类调色板（语义色循环，自动分配）──
     public static readonly Color[] DefaultPalette = new[]
     {
-        new Color(0.55f, 0.75f, 0.45f, 1f),
-        new Color(0.45f, 0.65f, 0.80f, 1f),
-        new Color(0.80f, 0.55f, 0.50f, 1f),
-        new Color(0.65f, 0.55f, 0.75f, 1f),
-        new Color(0.50f, 0.70f, 0.60f, 1f),
-        new Color(0.75f, 0.65f, 0.45f, 1f),
+        new Color(0.345f, 0.569f, 0.910f, 1f), // Blue
+        new Color(0.282f, 0.690f, 0.404f, 1f), // Emerald
+        new Color(0.843f, 0.620f, 0.220f, 1f), // Amber
+        new Color(0.580f, 0.490f, 0.820f, 1f), // Violet
+        new Color(0.282f, 0.690f, 0.690f, 1f), // Teal
+        new Color(0.400f, 0.529f, 0.729f, 1f), // Slate-Blue
     };
     #endregion
 }

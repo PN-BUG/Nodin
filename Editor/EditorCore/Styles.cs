@@ -26,7 +26,6 @@ public static class Styles
     private static GUIStyle _styleSectionHeader;
     private static GUIStyle _styleShortcut;
     private static GUIStyle _styleInvisibleBtn;
-    // ── 缓存热路径 GUIStyle（避免每帧 OnGUI 分配）──
     private static GUIStyle _styleLogo;
     private static GUIStyle _styleVersion;
     private static GUIStyle _styleCatCardIcon;
@@ -93,7 +92,7 @@ public static class Styles
         _texSelected = Palette.MakeTex(1, 1, Theme.ClrSelection);
         _texTransparent = Palette.MakeTex(1, 1, new Color(0, 0, 0, 0));
 
-        // ── 左侧分类标题（纯 Label，箭头手动绘制）──
+        // ── 左侧分类标题 ──
         _styleCategoryHeader = new GUIStyle()
         {
             fontSize = 11,
@@ -105,7 +104,7 @@ public static class Styles
             richText = true
         };
 
-        // ── 工具项（Label，带背景纹理）──
+        // ── 工具项 ──
         _styleToolItem = new GUIStyle(EditorStyles.label)
         {
             fontSize = 12,
@@ -127,10 +126,10 @@ public static class Styles
             active = { textColor = Color.white, background = _texSelected }
         };
 
-        // ── 右侧标题 ──
+        // ── 右侧标题（加大）──
         _styleRightTitle = new GUIStyle()
         {
-            fontSize = 22,
+            fontSize = 24,
             fontStyle = FontStyle.Bold,
             normal = { textColor = Theme.ClrTextBright },
             richText = true,
@@ -139,7 +138,7 @@ public static class Styles
 
         _styleRightSubtitle = new GUIStyle()
         {
-            fontSize = 11,
+            fontSize = 12,
             normal = { textColor = Theme.ClrTextDim },
             richText = true
         };
@@ -170,10 +169,10 @@ public static class Styles
             padding = new RectOffset(8, 8, 3, 3)
         };
 
-        // ── 欢迎页 ──
+        // ── 欢迎页标题（加大、加间距）──
         _styleWelcomeTitle = new GUIStyle()
         {
-            fontSize = 28,
+            fontSize = 30,
             fontStyle = FontStyle.Bold,
             alignment = TextAnchor.MiddleCenter,
             normal = { textColor = Theme.ClrTextBright },
@@ -182,7 +181,7 @@ public static class Styles
 
         _styleWelcomeSub = new GUIStyle()
         {
-            fontSize = 13,
+            fontSize = 14,
             alignment = TextAnchor.MiddleCenter,
             normal = { textColor = Theme.ClrTextDim },
             richText = true
@@ -211,7 +210,7 @@ public static class Styles
             alignment = TextAnchor.MiddleCenter,
             normal = { textColor = Color.white },
             hover = { textColor = Color.white },
-            active = { textColor = new Color(0.8f, 0.8f, 0.8f) },
+            active = { textColor = new Color(0.82f, 0.82f, 0.82f) },
             padding = new RectOffset(16, 16, 8, 8)
         };
 
@@ -224,7 +223,7 @@ public static class Styles
             padding = new RectOffset(10, 10, 6, 6)
         };
 
-        // ── 分节标题 ──
+        // ── 分节标题（加粗、提高对比度）──
         _styleSectionHeader = new GUIStyle()
         {
             fontSize = 12,
@@ -243,7 +242,7 @@ public static class Styles
             padding = new RectOffset(5, 5, 2, 2)
         };
 
-        // ── 透明按钮（点击可见、外观透明，替代 GUIStyle.none 修复点击失效）──
+        // ── 透明按钮 ──
         _styleInvisibleBtn = new GUIStyle()
         {
             normal = { background = _texTransparent },
@@ -252,24 +251,29 @@ public static class Styles
             focused = { background = _texTransparent }
         };
 
-        // ── 缓存热路径样式（避免每帧 OnGUI 堆分配）──
+        // ── Logo ──
         _styleLogo = new GUIStyle()
         {
-            fontSize = 15,
+            fontSize = 16,
             richText = true,
             normal = { textColor = Theme.ClrTextBright },
             padding = new RectOffset(0, 0, 2, 2)
         };
+
+        // ── 版本信息 ──
         _styleVersion = new GUIStyle()
         {
             richText = true,
             normal = { textColor = Theme.ClrTextDim }
         };
+
+        // ── 分类卡片图标 ──
         _styleCatCardIcon = new GUIStyle()
         {
             fontSize = 14,
             normal = { textColor = Theme.ClrAccent }
         };
+
         _styleCatCardName = new GUIStyle()
         {
             fontSize = 11,
@@ -277,24 +281,30 @@ public static class Styles
             normal = { textColor = Theme.ClrText },
             clipping = TextClipping.Clip
         };
+
         _styleCatCardCount = new GUIStyle()
         {
             fontSize = 9,
             normal = { textColor = Theme.ClrTextDim }
         };
+
+        // ── 返回按钮（提高对比度）──
         _styleBackButton = new GUIStyle()
         {
             fontSize = 11,
             normal = { textColor = Theme.ClrTextDim },
-            hover = { textColor = Theme.ClrText },
+            hover = { textColor = Theme.ClrTextBright },
             padding = new RectOffset(0, 0, 2, 2)
         };
+
         _styleEmptyHint = new GUIStyle()
         {
             fontSize = 11,
             normal = { textColor = Theme.ClrTextDim },
             padding = new RectOffset(8, 0, 4, 4)
         };
+
+        // ── 快捷键键帽 ──
         _styleKeyCap = new GUIStyle()
         {
             fontSize = 11,
@@ -302,6 +312,7 @@ public static class Styles
             alignment = TextAnchor.MiddleCenter,
             normal = { textColor = Theme.ClrTextBright }
         };
+
         _styleHiddenItemName = new GUIStyle()
         {
             fontSize = 12,
@@ -309,6 +320,7 @@ public static class Styles
             normal = { textColor = Theme.ClrTextBright },
             clipping = TextClipping.Clip
         };
+
         _styleHiddenItemDesc = new GUIStyle()
         {
             fontSize = 9,
