@@ -6,6 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Nodin
@@ -40,6 +41,18 @@ namespace Nodin
     {
         public string GroupName { get; }
         public BoxGroupAttribute(string groupName) { GroupName = groupName; }
+    }
+
+    /// <summary>
+    /// 将字段归入可切换的分组。第一个 bool 字段作为开关，控制同组其他字段的显示。
+    /// 用法：[ToggleGroup("组名")] public bool toggle;
+    ///       [ToggleGroup("组名")] public Color color;
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    public class ToggleGroupAttribute : Attribute
+    {
+        public string GroupName { get; }
+        public ToggleGroupAttribute(string groupName) { GroupName = groupName; }
     }
 
     // ══════════════════════════════════════════════════════════
@@ -187,6 +200,10 @@ namespace Nodin
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
     public class ReadOnlyAttribute : Attribute { }
 
+    /// <summary>将枚举字段渲染为切换按钮组</summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    public class EnumToggleButtonsAttribute : Attribute { }
+
     // ══════════════════════════════════════════════════════════
     //  按钮 & 动作
     // ══════════════════════════════════════════════════════════
@@ -245,6 +262,21 @@ namespace Nodin
         public ValueDropdownAttribute(string memberName) { MemberName = memberName; }
     }
 
+    /// <summary>ValueDropdown 下拉选项条目</summary>
+    public struct ValueDropdownItem<T>
+    {
+        public string Text { get; }
+        public T Value { get; }
+        public ValueDropdownItem(string text, T value) { Text = text; Value = value; }
+        public override string ToString() => Text ?? Value?.ToString() ?? "";
+    }
+
+    /// <summary>ValueDropdown 下拉选项列表辅助类型</summary>
+    public class ValueDropdownList<T> : List<ValueDropdownItem<T>>
+    {
+        public void Add(string name, T value) => Add(new ValueDropdownItem<T>(name, value));
+    }
+
     /// <summary>文件夹路径选择器</summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
     public class FolderPathAttribute : Attribute
@@ -286,5 +318,97 @@ namespace Nodin
         public string ValueLabel { get; set; }
         /// <summary>是否显示 Key 列标签（默认 true）</summary>
         public bool IsReadOnly { get; set; }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  数值约束
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>限制数值字段的最小值</summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
+    public class MinValueAttribute : Attribute
+    {
+        public double Min { get; }
+        public MinValueAttribute(double min) { Min = min; }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  水平布局
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>将字段归入水平排列分组，同名字段在同一行绘制</summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
+    public class HorizontalGroupAttribute : Attribute
+    {
+        public string GroupName { get; }
+        public float Width { get; }
+
+        public HorizontalGroupAttribute() { GroupName = ""; Width = 0f; }
+        public HorizontalGroupAttribute(string groupName) { GroupName = groupName; Width = 0f; }
+        public HorizontalGroupAttribute(string groupName, float width) { GroupName = groupName; Width = width; }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  标题 & 只读显示
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>标题对齐方式</summary>
+    public enum TitleAlignment { Left, Center, Right }
+
+    /// <summary>在字段上方绘制粗体标题</summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
+    public class TitleAttribute : Attribute
+    {
+        public string TitleText { get; }
+        public string Subtitle { get; }
+        public TitleAlignment Alignment { get; }
+        public bool HorizontalLine { get; set; } = true;
+        public bool Bold { get; set; } = true;
+
+        public TitleAttribute(string title)
+        {
+            TitleText = title;
+            Subtitle = null;
+            Alignment = TitleAlignment.Left;
+        }
+
+        public TitleAttribute(string title, string subtitle)
+        {
+            TitleText = title;
+            Subtitle = subtitle;
+            Alignment = TitleAlignment.Left;
+        }
+
+        public TitleAttribute(string title, TitleAlignment alignment)
+        {
+            TitleText = title;
+            Subtitle = null;
+            Alignment = alignment;
+        }
+
+        public TitleAttribute(string title, string subtitle, TitleAlignment alignment)
+        {
+            TitleText = title;
+            Subtitle = subtitle;
+            Alignment = alignment;
+        }
+    }
+
+    /// <summary>将字段值以只读字符串形式显示（不可编辑）</summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
+    public class DisplayAsStringAttribute : Attribute
+    {
+        public bool Overflow { get; }
+        public DisplayAsStringAttribute() { Overflow = false; }
+        public DisplayAsStringAttribute(bool overflow) { Overflow = overflow; }
+    }
+
+    /// <summary>标记引用字段为必填，为空时在 Inspector 中提示</summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
+    public class RequiredAttribute : Attribute
+    {
+        public string Message { get; }
+        public RequiredAttribute() { Message = null; }
+        public RequiredAttribute(string message) { Message = message; }
     }
 }

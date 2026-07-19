@@ -36,11 +36,24 @@ namespace Nodin.Editor
 
         private readonly Dictionary<string, bool> _foldoutStates = new();
 
+        // ── ToggleGroup 状态 ──
+        private readonly Dictionary<string, bool> _toggleGroupStates = new();
+        private readonly Dictionary<string, bool> _toggleGroupExpanded = new();
+
         // ── 复用 GUIContent（避免每帧分配）──
         private static readonly GUIContent _cachedLabel = new GUIContent();
 
-        // ── 复用 GUIStyle（DrawListField 中每个列表项）──
-        private static GUIStyle _listItemNumStyle;
+        // ── List 拖拽排序状态 ──
+        private static string _dragListKey;
+        private static int _dragSrcIndex = -1;
+        private static int _dragDstIndex = -1;
+        private static float _dragMouseOffsetY;
+        private static List<Rect> _dragRowRects = new();
+        private const float _dragThreshold = 6f; // 拖拽启动阈值（像素）
+        // 延迟启动拖拽：MouseDown 在空白处记录候选，MouseDrag 超过阈值后才真正启动
+        private static string _pendingDragListKey;
+        private static int _pendingDragSrcIndex = -1;
+        private static Vector2 _pendingDragStartPos;
 
         // ── 字典折叠状态 ──
         private readonly Dictionary<string, bool> _dictFoldouts = new();
@@ -48,9 +61,13 @@ namespace Nodin.Editor
         // ── Dictionary 字段列表（用于自动序列化）──
         private readonly FieldInfo[] _dictFields;
 
-        public NodinDrawer(object target)
+        // ── Undo 目标（UnityEngine.Object 才能 RecordObject）──
+        private readonly UnityEngine.Object _undoTarget;
+
+        public NodinDrawer(object target, UnityEngine.Object undoTarget = null)
         {
             _target = target;
+            _undoTarget = undoTarget ?? (target as UnityEngine.Object);
             _type = target.GetType();
             // ── 收集字段并缓存所有 Attribute ──
             var fields = _type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
@@ -161,6 +178,9 @@ namespace Nodin.Editor
             DrawUngroupedFields();
             DrawUngroupedButtons();
 
+            // ── ToggleGroup 绘制 ──
+            DrawAllToggleGroups();
+
             foreach (var groupName in _orderedTopGroups)
             {
                 DrawTopGroup(groupName);
@@ -235,6 +255,124 @@ namespace Nodin.Editor
             }
         }
 
+        // ── ToggleGroup 绘制 ──────────────────────────────
+
+        /// <summary>收集并绘制所有 ToggleGroup</summary>
+        private void DrawAllToggleGroups()
+        {
+            // 收集所有 ToggleGroup 名称（按首次出现顺序）
+            var groupNames = new List<string>();
+            foreach (var fm in _fieldMetas)
+            {
+                if (fm.ToggleGroup == null) continue;
+                var name = fm.ToggleGroup.GroupName;
+                if (!groupNames.Contains(name))
+                    groupNames.Add(name);
+            }
+
+            foreach (var name in groupNames)
+            {
+                DrawToggleGroup(name);
+            }
+        }
+
+        /// <summary>绘制单个 ToggleGroup：bool 字段作为标题开关，其余字段在开关打开时显示</summary>
+        private void DrawToggleGroup(string groupName)
+        {
+            // 找到 bool 字段（toggle 开关）
+            var toggleField = Array.Find(_fieldMetas, fm =>
+                fm.ToggleGroup?.GroupName == groupName && fm.Field.FieldType == typeof(bool));
+
+            // 初始化状态
+            if (!_toggleGroupStates.ContainsKey(groupName) && toggleField != null)
+                _toggleGroupStates[groupName] = (bool)toggleField.Field.GetValue(_target);
+            if (!_toggleGroupExpanded.ContainsKey(groupName))
+                _toggleGroupExpanded[groupName] = true;
+
+            EditorGUILayout.Space(3);
+
+            // 绘制带 toggle 的标题栏
+            var rect = EditorGUILayout.GetControlRect(GUILayout.Height(26));
+            var bgRect = rect;
+            EditorGUI.DrawRect(bgRect, new Color(0.26f, 0.52f, 0.88f, 0.18f));
+
+            var barRect = new Rect(rect.x, rect.y, 3, rect.height);
+            EditorGUI.DrawRect(barRect, new Color(0.3f, 0.55f, 0.95f, 0.9f));
+
+            // 折叠箭头（点击切换展开）
+            var arrowRect = new Rect(rect.x + 8, rect.y, 16, rect.height);
+            var expanded = _toggleGroupExpanded[groupName];
+            var arrow = expanded ? "▼" : "▶";
+            var oldColor = GUI.color;
+            GUI.color = new Color(0.6f, 0.65f, 0.75f, 1f);
+            GUI.Label(arrowRect, arrow, EditorStyles.miniLabel);
+            GUI.color = oldColor;
+
+            if (Event.current.type == EventType.MouseDown && arrowRect.Contains(Event.current.mousePosition))
+            {
+                _toggleGroupExpanded[groupName] = !_toggleGroupExpanded[groupName];
+                Event.current.Use();
+            }
+
+            // Toggle 开关
+            var toggleValue = _toggleGroupStates.ContainsKey(groupName) && _toggleGroupStates[groupName];
+            var toggleRect = new Rect(rect.x + 26, rect.y, 20, rect.height);
+            var newToggle = EditorGUI.Toggle(toggleRect, toggleValue);
+
+            if (newToggle != toggleValue)
+            {
+                _toggleGroupStates[groupName] = newToggle;
+                if (toggleField != null)
+                {
+                    RecordUndo($"Nodin: 切换 {groupName}");
+                    toggleField.Field.SetValue(_target, newToggle);
+                    if (_target is UnityEngine.Object unityObj)
+                    {
+                        EditorUtility.SetDirty(unityObj);
+                        AssetDatabase.SaveAssetIfDirty(unityObj);
+                    }
+                }
+            }
+
+            // 标题文字（点击文字也能切换 toggle）
+            var labelRect = new Rect(rect.x + 48, rect.y, rect.width - 48, rect.height);
+            EditorGUI.LabelField(labelRect, groupName, EditorStyles.boldLabel);
+
+            if (Event.current.type == EventType.MouseDown && labelRect.Contains(Event.current.mousePosition))
+            {
+                _toggleGroupStates[groupName] = !_toggleGroupStates[groupName];
+                if (toggleField != null)
+                {
+                    RecordUndo($"Nodin: 切换 {groupName}");
+                    toggleField.Field.SetValue(_target, _toggleGroupStates[groupName]);
+                    if (_target is UnityEngine.Object unityObj2)
+                    {
+                        EditorUtility.SetDirty(unityObj2);
+                        AssetDatabase.SaveAssetIfDirty(unityObj2);
+                    }
+                }
+                Event.current.Use();
+            }
+
+            // 绘制组内字段（bool 开关打开 且 折叠展开时）
+            if (_toggleGroupStates[groupName] && _toggleGroupExpanded[groupName])
+            {
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                EditorGUILayout.Space(2);
+
+                foreach (var fm in _fieldMetas)
+                {
+                    if (fm.ToggleGroup?.GroupName != groupName) continue;
+                    if (fm.Field.FieldType == typeof(bool)) continue; // 跳过 toggle 字段本身
+                    if (!ShouldShow(fm)) continue;
+                    DrawField(fm);
+                }
+
+                EditorGUILayout.Space(2);
+                EditorGUILayout.EndVertical();
+            }
+        }
+
         // ── 分组标题栏 ──────────────────────────────────
 
         private static void DrawGroupHeader(string title, bool expanded, bool isSubGroup, out bool clicked, float rightReservedWidth = 0f)
@@ -275,23 +413,83 @@ namespace Nodin.Editor
 
         private void DrawUngroupedFields()
         {
-            foreach (var fm in _fieldMetas)
+            var drawn = new HashSet<int>();
+            for (int i = 0; i < _fieldMetas.Length; i++)
             {
+                if (drawn.Contains(i)) continue;
+                var fm = _fieldMetas[i];
                 if (fm.FoldoutGroup != null) continue;
+                if (fm.ToggleGroup != null) continue; // ToggleGroup 由 DrawAllToggleGroups 绘制
+                if (fm.HorizontalGroup != null)
+                {
+                    DrawHorizontalGroupFields(i, fm.HorizontalGroup.GroupName, null, drawn);
+                    continue;
+                }
                 if (!ShouldShow(fm)) continue;
                 DrawField(fm);
+                drawn.Add(i);
             }
         }
 
         private void DrawFieldsInGroup(string groupName)
         {
-            foreach (var fm in _fieldMetas)
+            var drawn = new HashSet<int>();
+            for (int i = 0; i < _fieldMetas.Length; i++)
             {
+                if (drawn.Contains(i)) continue;
+                var fm = _fieldMetas[i];
                 if (fm.FoldoutGroup == null) continue;
                 if (fm.FoldoutGroup.GroupName != groupName) continue;
+                if (fm.HorizontalGroup != null)
+                {
+                    DrawHorizontalGroupFields(i, fm.HorizontalGroup.GroupName, groupName, drawn);
+                    continue;
+                }
                 if (!ShouldShow(fm)) continue;
                 DrawField(fm);
+                drawn.Add(i);
             }
+        }
+
+        /// <summary>收集并水平绘制同一 HorizontalGroup 的字段</summary>
+        private void DrawHorizontalGroupFields(int startIdx, string hGroupName, string foldoutGroupName, HashSet<int> drawn)
+        {
+            var groupFields = new List<(FieldMeta fm, float width)>();
+            for (int j = startIdx; j < _fieldMetas.Length; j++)
+            {
+                var fm = _fieldMetas[j];
+                if (fm.HorizontalGroup == null) continue;
+                if (fm.HorizontalGroup.GroupName != hGroupName) continue;
+                if (foldoutGroupName != null)
+                {
+                    if (fm.FoldoutGroup == null || fm.FoldoutGroup.GroupName != foldoutGroupName) continue;
+                }
+                else
+                {
+                    if (fm.FoldoutGroup != null) continue;
+                }
+                groupFields.Add((fm, fm.HorizontalGroup.Width));
+                drawn.Add(j);
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            for (int k = 0; k < groupFields.Count; k++)
+            {
+                var (fm, width) = groupFields[k];
+                if (!ShouldShow(fm)) continue;
+
+                if (width > 0f && width <= 1f)
+                    EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true));
+                else if (width > 1f)
+                    EditorGUILayout.BeginVertical(GUILayout.Width(width));
+                else
+                    EditorGUILayout.BeginVertical();
+
+                DrawField(fm);
+
+                EditorGUILayout.EndVertical();
+            }
+            EditorGUILayout.EndHorizontal();
         }
 
         private bool ShouldShow(FieldMeta fm)
@@ -347,12 +545,26 @@ namespace Nodin.Editor
 
         private void DrawField(FieldMeta fm)
         {
+            DrawTitle(fm);
             DrawInfoBox(fm);
 
             var label = fm.Label;
             var enabled = ShouldEnable(fm);
             var prevEnabled = GUI.enabled;
             GUI.enabled = enabled;
+
+            // DisplayAsString — 以只读字符串显示
+            if (fm.DisplayAsString != null)
+            {
+                var displayValue = fm.Field.GetValue(_target);
+                var strValue = displayValue?.ToString() ?? "null";
+                _cachedLabel.text = label;
+                _cachedLabel.tooltip = "";
+                EditorGUILayout.LabelField(_cachedLabel, new GUIContent(strValue));
+                DrawRequiredWarning(fm, displayValue);
+                GUI.enabled = prevEnabled;
+                return;
+            }
 
             EditorGUI.BeginChangeCheck();
 
@@ -362,6 +574,12 @@ namespace Nodin.Editor
 
             if (EditorGUI.EndChangeCheck())
             {
+                RecordUndo($"Nodin: 修改 {fm.Field.Name}");
+
+                // MinValue 约束
+                if (fm.MinValue != null)
+                    newValue = ClampMin(newValue, fm.MinValue.Min);
+
                 fm.Field.SetValue(_target, newValue);
                 InvokeOnValueChanged(fm);
 
@@ -384,7 +602,77 @@ namespace Nodin.Editor
                 }
             }
 
+            DrawRequiredWarning(fm, value);
+
             GUI.enabled = prevEnabled;
+        }
+
+        /// <summary>绘制 Title 标题</summary>
+        private static void DrawTitle(FieldMeta fm)
+        {
+            if (fm.Title == null) return;
+            var title = fm.Title.TitleText;
+            var subtitle = fm.Title.Subtitle;
+
+            EditorGUILayout.Space(2);
+
+            var style = fm.Title.Bold ? EditorStyles.boldLabel : EditorStyles.label;
+            var alignment = fm.Title.Alignment switch
+            {
+                TitleAlignment.Center => TextAnchor.MiddleCenter,
+                TitleAlignment.Right => TextAnchor.UpperRight,
+                _ => TextAnchor.UpperLeft,
+            };
+            style = new GUIStyle(style) { alignment = alignment };
+
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField(title, style);
+                GUILayout.Label(subtitle, EditorStyles.miniLabel);
+                EditorGUILayout.EndHorizontal();
+            }
+            else
+            {
+                EditorGUILayout.LabelField(title, style);
+            }
+
+            if (fm.Title.HorizontalLine)
+            {
+                var rect = EditorGUILayout.GetControlRect(false, 1);
+                EditorGUI.DrawRect(rect, new Color(0.5f, 0.5f, 0.5f, 0.3f));
+                EditorGUILayout.Space(1);
+            }
+        }
+
+        /// <summary>Required 校验：值为空时显示警告</summary>
+        private static void DrawRequiredWarning(FieldMeta fm, object value)
+        {
+            if (fm.Required == null) return;
+
+            bool isNull = value == null
+                || (value is UnityEngine.Object uo && uo == null)
+                || (value is string s && string.IsNullOrEmpty(s))
+                || (value is System.Collections.ICollection c && c.Count == 0);
+
+            if (isNull)
+            {
+                var msg = fm.Required.Message ?? $"「{fm.Label}」未赋值";
+                EditorGUILayout.HelpBox(msg, MessageType.Warning);
+            }
+        }
+
+        /// <summary>将数值限制到最小值</summary>
+        private static object ClampMin(object value, double min)
+        {
+            switch (value)
+            {
+                case int i: return (int)Math.Max(i, min);
+                case long l: return (long)Math.Max(l, min);
+                case float f: return (float)Math.Max(f, min);
+                case double d: return Math.Max(d, min);
+                default: return value;
+            }
         }
 
         private void DrawInfoBox(FieldMeta fm)
@@ -502,20 +790,34 @@ namespace Nodin.Editor
             var listType = type.GetGenericArguments()[0];
             var list = (System.Collections.IList)value;
 
-            EditorGUILayout.BeginHorizontal();
-            if (!hideLabel)
-                EditorGUILayout.LabelField($"{label}  ({list.Count})", EditorStyles.boldLabel);
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("+", GUILayout.Width(24), GUILayout.Height(18)))
+            // ── 折叠头部（复用分组标题样式）──
+            string foldKey = $"__list_{label}_{type.FullName}";
+            if (!_foldoutStates.ContainsKey(foldKey))
+                _foldoutStates[foldKey] = false;
+            bool expanded = _foldoutStates[foldKey];
+
+            DrawGroupHeader($"{label}  ({list.Count})", expanded, isSubGroup: false, out var toggled, rightReservedWidth: 32);
+            if (toggled)
             {
+                _foldoutStates[foldKey] = !expanded;
+                expanded = !expanded;
+            }
+
+            // 右上角 + 按钮（覆盖在标题行右侧）
+            var lastRect = GUILayoutUtility.GetLastRect();
+            var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 1, 22, 18);
+            if (GUI.Button(btnRect, "+", EditorStyles.miniButton))
+            {
+                RecordUndo("Nodin: 添加列表元素");
                 object defaultVal = listType.IsValueType ? Activator.CreateInstance(listType) : null;
                 list.Add(defaultVal);
                 GUI.changed = true;
-                return;
             }
-            EditorGUILayout.EndHorizontal();
 
-            EditorGUILayout.BeginVertical(EditorStyles.textArea);
+            if (!expanded) return;
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.Space(2);
             EditorGUI.indentLevel++;
 
             if (list.Count == 0)
@@ -523,15 +825,98 @@ namespace Nodin.Editor
                 EditorGUILayout.LabelField("（空列表）", EditorStyles.centeredGreyMiniLabel);
             }
 
-            if (_listItemNumStyle == null)
-                _listItemNumStyle = new GUIStyle(EditorStyles.miniLabel) { fixedWidth = 28 };
+            // ── 拖拽事件处理 ──
+            var e = Event.current;
+            var evtType = e.type;
+            bool isDraggingThisList = _dragListKey == foldKey && _dragSrcIndex >= 0;
+            bool isPendingThisList = _pendingDragListKey == foldKey && _pendingDragSrcIndex >= 0;
+
+            // 只在 Repaint 时收集行 Rect
+            if (evtType == EventType.Repaint)
+                _dragRowRects.Clear();
+
+            // ── 拖拽过程中更新目标位置 ──
+            if (evtType == EventType.MouseDrag && isDraggingThisList)
+            {
+                _dragDstIndex = _dragSrcIndex;
+                var mousePos = e.mousePosition;
+                for (int r = 0; r < _dragRowRects.Count; r++)
+                {
+                    var rr = _dragRowRects[r];
+                    if (mousePos.y < rr.yMin) { _dragDstIndex = r; break; }
+                    if (mousePos.y >= rr.yMin && mousePos.y < rr.yMax)
+                    {
+                        _dragDstIndex = mousePos.y < rr.yMin + rr.height * 0.5f ? r : r + 1;
+                        break;
+                    }
+                    if (r == _dragRowRects.Count - 1 && mousePos.y >= rr.yMax)
+                    {
+                        _dragDstIndex = _dragRowRects.Count;
+                        break;
+                    }
+                }
+                GUI.changed = true;
+                e.Use();
+            }
+            // ── 延迟启动：鼠标移动超过阈值才真正启动拖拽 ──
+            else if (evtType == EventType.MouseDrag && isPendingThisList)
+            {
+                if (Vector2.Distance(e.mousePosition, _pendingDragStartPos) > _dragThreshold)
+                {
+                    RecordUndo("Nodin: 拖拽排序列表");
+                    _dragListKey = _pendingDragListKey;
+                    _dragSrcIndex = _pendingDragSrcIndex;
+                    _dragDstIndex = _pendingDragSrcIndex;
+                    isDraggingThisList = true;
+                    _dragMouseOffsetY = 0;
+                    GUI.changed = true;
+                    e.Use();
+                }
+            }
+
+            bool skipRemaining = false;
+            System.Action pendingReorder = null; // 延迟执行排序，避免循环中修改列表导致索引错乱
 
             for (int i = 0; i < list.Count; i++)
             {
+                if (skipRemaining) break;
+
+                // ── 拖拽放下指示线（绘制在目标行上方）──
+                if (isDraggingThisList && _dragDstIndex == i && _dragSrcIndex != i)
+                {
+                    var indRect = GUILayoutUtility.GetRect(0, 2, GUILayout.ExpandWidth(true));
+                    var prevColor = GUI.color;
+                    GUI.color = new Color(0.2f, 0.6f, 1f, 0.9f);
+                    GUI.DrawTexture(indRect, EditorGUIUtility.whiteTexture);
+                    GUI.color = prevColor;
+                    GUILayout.Space(-2);
+                }
+
                 var itemValue = list[i];
                 EditorGUILayout.BeginHorizontal();
 
-                EditorGUILayout.LabelField($"#{i}", _listItemNumStyle);
+                // ── 拖拽把手（≡ 视觉提示，不是按钮）──
+                var gripStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontStyle = FontStyle.Bold,
+                    fontSize = 12,
+                    padding = new RectOffset(0, 0, 0, 0)
+                };
+                GUILayout.Label("≡", gripStyle, GUILayout.Width(16), GUILayout.Height(16));
+
+                // ── 字段值绘制 ──
+                // 拖拽中的行：半透明 + 禁用交互
+                bool isDraggedRow = isDraggingThisList && _dragSrcIndex == i;
+                if (isDraggedRow)
+                {
+                    var c = GUI.color;
+                    GUI.color = new Color(c.r, c.g, c.b, 0.45f);
+                    GUI.enabled = false;
+                }
+
+                bool valueChanged = false;
+                EditorGUI.BeginChangeCheck();
 
                 if (listType == typeof(bool))
                     list[i] = EditorGUILayout.Toggle((bool)itemValue);
@@ -554,20 +939,123 @@ namespace Nodin.Editor
                 else
                     EditorGUILayout.LabelField(itemValue?.ToString() ?? "null");
 
-                if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16)))
+                valueChanged = EditorGUI.EndChangeCheck();
+                if (valueChanged) RecordUndo("Nodin: 修改列表元素");
+
+                if (isDraggedRow)
                 {
+                    GUI.enabled = true;
+                    var c = GUI.color;
+                    GUI.color = new Color(c.r, c.g, c.b, 1f);
+                }
+
+                // ▲ 上移
+                using (new EditorGUI.DisabledScope(i == 0))
+                {
+                    if (GUILayout.Button("▲", EditorStyles.miniButtonLeft, GUILayout.Width(20), GUILayout.Height(16)))
+                    {
+                        RecordUndo("Nodin: 上移列表元素");
+                        (list[i], list[i - 1]) = (list[i - 1], list[i]);
+                        GUI.changed = true;
+                        EditorGUILayout.EndHorizontal();
+                        skipRemaining = true;
+                    }
+                }
+                if (skipRemaining) continue;
+                // ▼ 下移
+                using (new EditorGUI.DisabledScope(i == list.Count - 1))
+                {
+                    if (GUILayout.Button("▼", EditorStyles.miniButtonMid, GUILayout.Width(20), GUILayout.Height(16)))
+                    {
+                        RecordUndo("Nodin: 下移列表元素");
+                        (list[i], list[i + 1]) = (list[i + 1], list[i]);
+                        GUI.changed = true;
+                        EditorGUILayout.EndHorizontal();
+                        skipRemaining = true;
+                    }
+                }
+                if (skipRemaining) continue;
+
+                if (GUILayout.Button("✕", EditorStyles.miniButtonRight, GUILayout.Width(20), GUILayout.Height(16)))
+                {
+                    RecordUndo("Nodin: 删除列表元素");
                     list.RemoveAt(i);
                     GUI.changed = true;
                     EditorGUILayout.EndHorizontal();
-                    break;
+                    skipRemaining = true;
                 }
+                if (skipRemaining) continue;
 
                 EditorGUILayout.EndHorizontal();
+
+                // 记录整行 Rect（EndHorizontal 后 GetLastRect 可拿到完整行区域）
+                if (evtType == EventType.Repaint)
+                {
+                    var lastRowRect = GUILayoutUtility.GetLastRect();
+                    _dragRowRects.Add(lastRowRect);
+                }
+
+                // ── 空白区域拖拽检测：MouseDown 没被字段/按钮消费 → 候选拖拽 ──
+                // 用 e.type 而非 evtType，因为按钮消费事件后 e.type 会变成 Used
+                if (e.type == EventType.MouseDown && e.button == 0 && !isDraggingThisList && !isPendingThisList)
+                {
+                    var lastRow = GUILayoutUtility.GetLastRect();
+                    if (lastRow.Contains(e.mousePosition))
+                    {
+                        _pendingDragListKey = foldKey;
+                        _pendingDragSrcIndex = i;
+                        _pendingDragStartPos = e.mousePosition;
+                        isPendingThisList = true;
+                    }
+                }
+
+                // ── 拖拽结束 ──
+                if (evtType == EventType.MouseUp && (isDraggingThisList || isPendingThisList) && i == list.Count - 1)
+                {
+                    if (isDraggingThisList && _dragDstIndex != _dragSrcIndex && _dragDstIndex >= 0)
+                    {
+                        int src = _dragSrcIndex, dst = _dragDstIndex;
+                        pendingReorder = () =>
+                        {
+                            var obj = list[src];
+                            list.RemoveAt(src);
+                            int insertAt = dst > src ? dst - 1 : dst;
+                            insertAt = Mathf.Clamp(insertAt, 0, list.Count);
+                            list.Insert(insertAt, obj);
+                        };
+                    }
+                    _dragListKey = null;
+                    _dragSrcIndex = -1;
+                    _dragDstIndex = -1;
+                    _pendingDragListKey = null;
+                    _pendingDragSrcIndex = -1;
+                    isDraggingThisList = false;
+                    isPendingThisList = false;
+                    e.Use();
+                }
+            }
+
+            // ── 拖拽结束：延迟执行排序（避免循环中修改列表导致索引错乱）──
+            if (pendingReorder != null)
+            {
+                pendingReorder();
+                GUI.changed = true;
+            }
+
+            // ── 拖拽中：在列表末尾绘制指示线（拖到最后位置时）──
+            if (isDraggingThisList && _dragRowRects.Count > 0 && _dragDstIndex >= list.Count)
+            {
+                var lastRow = _dragRowRects[_dragRowRects.Count - 1];
+                var indRect = new Rect(lastRow.x, lastRow.yMax, lastRow.width, 2);
+                var prevColor = GUI.color;
+                GUI.color = new Color(0.2f, 0.6f, 1f, 0.9f);
+                GUI.DrawTexture(indRect, EditorGUIUtility.whiteTexture);
+                GUI.color = prevColor;
             }
 
             EditorGUI.indentLevel--;
-            EditorGUILayout.EndVertical();
             EditorGUILayout.Space(2);
+            EditorGUILayout.EndVertical();
         }
 
         // ── Dictionary 绘制 ───────────────────────────────
@@ -603,6 +1091,7 @@ namespace Nodin.Editor
 
             if (addClicked)
             {
+                RecordUndo("Nodin: 添加字典条目");
                 if (keyType.IsEnum)
                 {
                     var usedKeys = new HashSet<object>();
@@ -697,6 +1186,7 @@ namespace Nodin.Editor
 
                 if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16)))
                 {
+                    RecordUndo("Nodin: 删除字典条目");
                     dict.Remove(key);
                     GUI.changed = true;
                     EditorGUILayout.EndHorizontal();
@@ -774,6 +1264,14 @@ namespace Nodin.Editor
 
         // ── 辅助 ──────────────────────────────────────────
 
+        // ── Undo 辅助 ─────────────────────────────────────
+
+        private void RecordUndo(string name)
+        {
+            if (_undoTarget != null)
+                Undo.RecordObject(_undoTarget, name);
+        }
+
         private void InvokeOnValueChanged(FieldMeta fm)
         {
             if (fm.OnValueChanged == null) return;
@@ -788,6 +1286,7 @@ namespace Nodin.Editor
             public FieldInfo Field;
             public string Label;
             public FoldoutGroupAttribute FoldoutGroup;
+            public ToggleGroupAttribute ToggleGroup;
             public string TopGroupName;
             public LabelTextAttribute LabelText;
             public HideLabelAttribute HideLabel;
@@ -801,6 +1300,11 @@ namespace Nodin.Editor
             public ValueDropdownAttribute ValueDropdown;
             public InfoBoxAttribute[] InfoBoxes;
             public OnValueChangedAttribute OnValueChanged;
+            public MinValueAttribute MinValue;
+            public HorizontalGroupAttribute HorizontalGroup;
+            public TitleAttribute Title;
+            public RequiredAttribute Required;
+            public DisplayAsStringAttribute DisplayAsString;
 
             // 缓存的 dropdown 选项
             private string[] _cachedOptions;
@@ -818,6 +1322,12 @@ namespace Nodin.Editor
                     fm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
                 }
 
+                fm.ToggleGroup = field.GetCustomAttribute<ToggleGroupAttribute>();
+                if (fm.ToggleGroup != null && fm.TopGroupName == null)
+                {
+                    fm.TopGroupName = "__ToggleGroup_" + fm.ToggleGroup.GroupName;
+                }
+
                 fm.LabelText = field.GetCustomAttribute<LabelTextAttribute>();
                 fm.HideLabel = field.GetCustomAttribute<HideLabelAttribute>();
                 fm.Label = fm.LabelText != null ? fm.LabelText.Text : ObjectNames.NicifyVariableName(field.Name);
@@ -832,6 +1342,11 @@ namespace Nodin.Editor
                 fm.ValueDropdown = field.GetCustomAttribute<ValueDropdownAttribute>();
                 fm.InfoBoxes = field.GetCustomAttributes<InfoBoxAttribute>().ToArray();
                 fm.OnValueChanged = field.GetCustomAttribute<OnValueChangedAttribute>();
+                fm.MinValue = field.GetCustomAttribute<MinValueAttribute>();
+                fm.HorizontalGroup = field.GetCustomAttribute<HorizontalGroupAttribute>();
+                fm.Title = field.GetCustomAttribute<TitleAttribute>();
+                fm.Required = field.GetCustomAttribute<RequiredAttribute>();
+                fm.DisplayAsString = field.GetCustomAttribute<DisplayAsStringAttribute>();
 
                 return fm;
             }
@@ -1065,7 +1580,9 @@ namespace Nodin.Editor
                 var assetPath = UnityEditor.AssetDatabase.GetAssetPath(obj);
                 if (!string.IsNullOrEmpty(assetPath))
                     return "O:asset:" + assetPath;
+#pragma warning disable CS0618 // InstanceID 仍可用于序列化回退
                 return "O:id:" + obj.GetInstanceID();
+#pragma warning restore CS0618
             }
             return "X:" + value;
         }
@@ -1122,11 +1639,13 @@ namespace Nodin.Editor
                 var assetPath = content.Substring(6);
                 return UnityEditor.AssetDatabase.LoadAssetAtPath(assetPath, type);
             }
-            // id:InstanceID (回退)
+            // id:InstanceID (legacy 回退)
             if (content.StartsWith("id:"))
             {
                 var idStr = content.Substring(3);
+#pragma warning disable CS0618 // InstanceIDToObject 仍可用于反序列化回退
                 return int.TryParse(idStr, out var id) ? EditorUtility.InstanceIDToObject(id) : null;
+#pragma warning restore CS0618
             }
             return null;
         }

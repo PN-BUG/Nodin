@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 using Nodin;
@@ -56,7 +57,7 @@ namespace Nodin.Editor
 
         private void OnEnable()
         {
-            _drawer = new NodinDrawer(target);
+            _drawer = new NodinDrawer(target, target);
         }
 
         public override void OnInspectorGUI()
@@ -76,12 +77,74 @@ namespace Nodin.Editor
 
         private void OnEnable()
         {
-            _drawer = new NodinDrawer(target);
+            _drawer = new NodinDrawer(target, target);
         }
 
         public override void OnInspectorGUI()
         {
             _drawer?.Draw();
+        }
+    }
+
+    /// <summary>
+    /// 通用 MonoBehaviour 编辑器桩。
+    /// 对所有 MonoBehaviour 生效（非 fallback），支持多对象编辑。
+    /// 当 MonoBehaviour 字段上使用了 Nodin 属性（如 [LabelText]、[FoldoutGroup]）时，
+    /// 自动通过 NodinDrawer 绘制；否则回退到默认 Inspector 绘制。
+    /// </summary>
+    [CustomEditor(typeof(MonoBehaviour), true), CanEditMultipleObjects]
+    public class NodinMonoBehaviourFallbackEditor : UnityEditor.Editor
+    {
+        private NodinDrawer _drawer;
+        private bool _hasNodinAttributes;
+
+        // ── 按类型缓存检测结果，避免每次 OnEnable 重复反射 ──
+        private static readonly Dictionary<System.Type, bool> _attrCache = new();
+
+        private void OnEnable()
+        {
+            var type = target.GetType();
+            if (!_attrCache.TryGetValue(type, out _hasNodinAttributes))
+            {
+                _hasNodinAttributes = HasNodinAttributes(type);
+                _attrCache[type] = _hasNodinAttributes;
+            }
+
+            if (_hasNodinAttributes)
+                _drawer = new NodinDrawer(target, target);
+        }
+
+        public override void OnInspectorGUI()
+        {
+            if (_hasNodinAttributes && _drawer != null)
+                _drawer.Draw();
+            else
+                DrawDefaultInspector();
+        }
+
+        private static bool HasNodinAttributes(System.Type type)
+        {
+            var fields = type.GetFields(BindingFlags.Public
+                | BindingFlags.Instance
+                | BindingFlags.NonPublic);
+
+            foreach (var f in fields)
+            {
+                if (f.GetCustomAttribute<LabelTextAttribute>() != null
+                    || f.GetCustomAttribute<FoldoutGroupAttribute>() != null
+                    || f.GetCustomAttribute<BoxGroupAttribute>() != null
+                    || f.GetCustomAttribute<ToggleGroupAttribute>() != null
+                    || f.GetCustomAttribute<ShowIfAttribute>() != null
+                    || f.GetCustomAttribute<HideIfAttribute>() != null
+                    || f.GetCustomAttribute<ReadOnlyAttribute>() != null
+                    || f.GetCustomAttribute<ShowInInspectorAttribute>() != null
+                    || f.GetCustomAttribute<InfoBoxAttribute>() != null
+                    || f.GetCustomAttribute<ValueDropdownAttribute>() != null
+                    || f.GetCustomAttribute<ListDrawerSettingsAttribute>() != null
+                    || f.GetCustomAttribute<EnumToggleButtonsAttribute>() != null)
+                    return true;
+            }
+            return false;
         }
     }
 }

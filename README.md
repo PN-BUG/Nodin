@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- **版本**: 1.2.0
+- **版本**: 1.4.0
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -14,12 +14,17 @@
 ### 分组 & 布局
 - **`[FoldoutGroup]`** - 将字段/方法归入可折叠分组，支持 '/' 分隔的子分组
 - **`[BoxGroup]`** - 将字段归入带标题的盒子分组
+- **`[ToggleGroup]`** - 布尔开关分组，bool 字段作为标题开关，控制组内其他字段的显示/隐藏
+- **`[HorizontalGroup]`** - 将多个字段水平排列在同一行
 
 ### 标签 & 显示
 - **`[LabelText]`** - 自定义 Inspector 中显示的标签文本
 - **`[HideLabel]`** - 隐藏字段标签，仅显示值控件
 - **`[InfoBox]`** - 在字段上方显示信息提示框（支持 Info/Warning/Error 类型）
 - **`[MultiLineProperty]`** - 将字符串字段绘制为多行文本区域
+- **`[Title]`** - 在字段上方显示标题文本（支持粗体/下划线样式）
+- **`[DisplayAsString]`** - 将字段值以纯文本形式显示（不可编辑）
+- **`[Required]`** - 标记 Object 引用字段为必填，空值时显示警告
 
 ### 条件显示 & 启用
 - **`[ShowIf]`** - 当指定成员值等于目标值时显示字段
@@ -39,6 +44,7 @@
 - **`[FolderPath]`** - 文件夹路径选择器
 - **`[AssetsOnly]`** - 限制 Object 引用仅允许 Asset（非场景对象）
 - **`[OnValueChanged]`** - 字段值改变后回调指定方法
+- **`[MinValue]`** - 设置数值字段的最小值约束
 - **`[ListDrawerSettings]`** - List 字段的绘制设置
 - **`[DictionaryDrawerSettings]`** - Dictionary 字段的绘制设置（自定义 Key/Value 列标签）
 
@@ -66,6 +72,18 @@ public class EnemyManager : NodinMonoBehaviour
 ```
 
 > **注意**: 使用 `Dictionary` 字段时**必须继承 `NodinMonoBehaviour`**，否则序列化数据会在 Play Mode 切换时丢失。`NodinMonoBehaviour` 实现了 `ISerializationCallbackReceiver`，通过扁平列表自动持久化所有 Dictionary 字段。
+
+### MonoBehaviour 自动支持（v1.3.0+）
+从 v1.3.0 起，所有 `MonoBehaviour`（包括通过 `MonoSingleton<T>` 等模式间接继承的类型）**无需修改继承关系**即可使用 Nodin 属性。编辑器会自动检测字段上是否使用了 `[LabelText]`、`[FoldoutGroup]` 等特性，有则使用 NodinDrawer 绘制，否则回退到 Unity 默认 Inspector。
+
+```csharp
+// 即使继承 MonoSingleton（→ MonoBehaviour），[LabelText] 也能正常渲染
+public class BattleFlowManager : MonoSingleton<BattleFlowManager>
+{
+    [LabelText("关卡列表（按顺序循环）")]
+    public List<LevelConfig> levelConfigs;
+}
+```
 
 ## 安装方法
 
@@ -387,13 +405,14 @@ public class DropdownExample : MonoBehaviour
 
 ## 测试脚本
 
-`Runtime/Test/NodinTest.cs` 覆盖了 Nodin 所有 18 种标签效果的测试，挂载到任意 GameObject 即可在 Inspector 中查看效果：
+`Runtime/Test/NodinTest.cs` 覆盖了 Nodin 所有标签效果的测试，挂载到任意 GameObject 即可在 Inspector 中查看效果：
 
 | 分组 | 测试内容 |
 |------|----------|
 | 标签 & 显示 | `[LabelText]`、`[HideLabel]` |
 | 信息提示 | `[InfoBox]` Info/Warning/Error + 条件显示 |
 | 折叠分组 | `[FoldoutGroup]` 展开/折叠 + 子分组 |
+| 开关分组 | `[ToggleGroup]` bool 开关 + 组内字段显隐 |
 | 盒子分组 | `[BoxGroup]` |
 | 条件显示 | `[ShowIf]`、`[HideIf]` 布尔和枚举条件 |
 | 条件启用 | `[EnableIf]`、`[DisableIf]` |
@@ -405,8 +424,13 @@ public class DropdownExample : MonoBehaviour
 | 下拉列表 | `[ValueDropdown]` |
 | 路径选择 | `[FolderPath]` |
 | 值改变回调 | `[OnValueChanged]` |
-| 列表设置 | `[ListDrawerSettings]` |
+| 列表设置 | `[ListDrawerSettings]`（含 ▲▼ 排序按钮） |
 | 字典设置 | `[DictionaryDrawerSettings]` |
+| 标题装饰 | `[Title]` |
+| 水平排列 | `[HorizontalGroup]` |
+| 必填校验 | `[Required]` |
+| 纯文本显示 | `[DisplayAsString]` |
+| 最小值约束 | `[MinValue]` |
 | 自定义 GUI | `[OnInspectorGUI]` |
 | 资产限制 | `[AssetsOnly]` |
 
@@ -418,7 +442,7 @@ public class DropdownExample : MonoBehaviour
 
 3. **性能优化**: `NodinDrawer` 在构造时一次性缓存所有字段/方法的 Attribute 元数据（`FieldMeta`/`MethodMeta`），后续 OnGUI 仅查询缓存，避免每帧重复反射调用。分组排序与子分组映射也在构造时预计算。ValueDropdown 选项首次解析后缓存。`GUIContent` / `GUIStyle` 复用静态实例，消除每帧 GC 分配
 
-4. **兼容性**: 与 Unity 原生特性（如 `[Header]`、`[Tooltip]`、`[Range]`）完全兼容，可以混合使用
+4. **兼容性**: 与 Unity 原生特性（如 `[Header]`、`[Tooltip]`、`[Range]`）完全兼容可混合使用，但项目规范推荐统一使用 Nodin 特性（`[LabelText]` 替代 `[Header]`/`[Tooltip]`，`[MinValue]` 替代 `[Range]`）
 
 5. **编辑器脚本**: 编辑器相关代码（`NodinDrawer`、`NodinEditor` 等）必须放在 `Editor` 文件夹中
 
@@ -426,12 +450,12 @@ public class DropdownExample : MonoBehaviour
 
 7. **按钮参数**: `[Button]` 标记的方法支持默认参数，无参方法可直接调用
 
-8. **Dictionary 序列化**: 使用 `Dictionary` 字段时必须继承 `NodinMonoBehaviour`，否则数据会在序列化时丢失
+8. **Dictionary 序列化**: 使用 `Dictionary` 字段时必须继承 `NodinMonoBehaviour`，否则数据会在序列化时丢失。普通 `MonoBehaviour` 的 Nodin 属性绘制（`[LabelText]` 等）从 v1.3.0 起自动支持，无需修改继承
 
 ## 常见问题
 
 ### Q: 为什么我的字段没有显示？
-A: 确保字段是 `public` 的，或者标记了 `[ShowInInspector]` 特性。同时检查是否有 `[HideInInspector]` 特性。
+A: 确保字段是 `public` 的，或者标记了 `[ShowInInspector]` 特性。同时检查是否有 `[HideInInspector]` 特性。从 v1.3.0 起，所有 MonoBehaviour（包括 `MonoSingleton<T>`）均自动支持 Nodin 属性绘制。
 
 ### Q: 如何让字段在特定条件下显示？
 A: 使用 `[ShowIf]` 特性，并指定条件字段或方法名：
@@ -470,6 +494,23 @@ public Dictionary<string, int> data;
 ```
 
 ## 更新日志
+
+### v1.4.0 (2026-07-19)
+- **List 拖拽排序**: 列表项新增左侧 `≡` 拖拽把手，按住拖动可自由排序，拖拽过程中显示蓝色插入指示线，被拖拽行半透明显示。拖拽放下即刻生效
+- **Undo 撤回支持**: 所有列表和字典的修改操作（添加、删除、排序、拖拽、值编辑）均可通过 Ctrl+Z 撤回
+- **修复拖拽覆盖 bug**: 修复拖拽时因绘制顺序导致行内容被意外覆盖的问题
+- 保留原有 ▲▼ 按钮排序和 ✕ 删除功能
+
+### v1.3.0 (2026-07-19)
+- **MonoBehaviour 自动支持**: 新增通用 MonoBehaviour 编辑器（`NodinMonoBehaviourFallbackEditor`），自动检测 Nodin 属性并绘制。`MonoSingleton<T>` 等非 `NodinMonoBehaviour` 子类无需修改继承即可使用 `[LabelText]`、`[FoldoutGroup]` 等特性
+- **新增 `[ToggleGroup]`**: 布尔开关分组，bool 字段作为标题开关控制组内其他字段的显隐
+- **新增 `[Title]`**: 标题装饰，支持粗体/下划线样式
+- **新增 `[Required]`**: Object 引用必填校验，空值时显示警告
+- **新增 `[DisplayAsString]`**: 纯文本显示模式
+- **新增 `[MinValue]`**: 数值最小值约束
+- **新增 `[HorizontalGroup]`**: 字段水平排列
+- **List UI 改进**: 列表项改为折叠式表头布局，新增 ▲▼ 排序按钮和 ✕ 删除按钮
+- **修复列表排序 bug**: 修复上移/下移操作后因字段绘制覆盖导致交换失效的问题
 
 ### v1.2.0 (2026-07-18)
 - 新增 `[DictionaryDrawerSettings]` 特性，支持自定义 Dictionary 的 Key/Value 列标签和只读模式
