@@ -306,6 +306,7 @@ namespace Nodin
         public int NumberOfItemsPerPage { get; set; }
         public bool ShowIndexLabels { get; set; }
         public bool HideAddButton { get; set; }
+        public bool AlwaysAddDefaultValue { get; set; }
     }
 
     /// <summary>Dictionary 字段的绘制设置</summary>
@@ -393,6 +394,10 @@ namespace Nodin
             Alignment = alignment;
         }
     }
+
+    /// <summary>将可序列化类的字段直接内联绘制，而非折叠显示</summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    public class InlinePropertyAttribute : Attribute { }
 
     /// <summary>将字段值以只读字符串形式显示（不可编辑）</summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]

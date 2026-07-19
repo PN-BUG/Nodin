@@ -780,6 +780,20 @@ namespace Nodin.Editor
                 return value;
             }
 
+            // 可序列化类/结构体 — [InlineProperty] 内联绘制
+            if (value != null && type.GetCustomAttribute<InlinePropertyAttribute>() != null)
+            {
+                if (!hideLabel)
+                {
+                    EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+                    EditorGUI.indentLevel++;
+                }
+                var inlineDrawer = new NodinDrawer(value, _undoTarget);
+                inlineDrawer.Draw();
+                if (!hideLabel) EditorGUI.indentLevel--;
+                return value;
+            }
+
             // 兜底
             EditorGUILayout.LabelField(label, value?.ToString() ?? "null");
             return value;
@@ -789,8 +803,10 @@ namespace Nodin.Editor
         {
             bool canDrag = settings?.DraggableItems != false;
             bool canAdd = settings?.HideAddButton != true;
+            bool alwaysAddDefault = settings?.AlwaysAddDefaultValue == true;
             if (value == null) return;
             var listType = type.GetGenericArguments()[0];
+            bool inlineItems = listType.GetCustomAttribute<InlinePropertyAttribute>() != null;
             var list = (System.Collections.IList)value;
 
             // ── 折叠头部（复用分组标题样式）──
@@ -814,7 +830,9 @@ namespace Nodin.Editor
                 if (GUI.Button(btnRect, "+", EditorStyles.miniButton))
                 {
                     RecordUndo("Nodin: 添加列表元素");
-                    object defaultVal = listType.IsValueType ? Activator.CreateInstance(listType) : null;
+                    object defaultVal = (alwaysAddDefault || listType.IsValueType)
+                        ? Activator.CreateInstance(listType)
+                        : null;
                     list.Add(defaultVal);
                     GUI.changed = true;
                 }
@@ -946,6 +964,14 @@ namespace Nodin.Editor
                     list[i] = EditorGUILayout.EnumPopup((Enum)itemValue);
                 else if (typeof(UnityEngine.Object).IsAssignableFrom(listType))
                     list[i] = EditorGUILayout.ObjectField((UnityEngine.Object)itemValue, listType, true);
+                else if (inlineItems && itemValue != null)
+                {
+                    // [InlineProperty] 内联绘制：将类字段直接展开在列表行中
+                    EditorGUILayout.BeginVertical();
+                    var inlineDrawer = new NodinDrawer(itemValue, _undoTarget);
+                    inlineDrawer.Draw();
+                    EditorGUILayout.EndVertical();
+                }
                 else
                     EditorGUILayout.LabelField(itemValue?.ToString() ?? "null");
 
