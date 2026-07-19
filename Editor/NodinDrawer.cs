@@ -767,7 +767,8 @@ namespace Nodin.Editor
             // List<T>
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
             {
-                DrawListField(label, value, type, hideLabel);
+                var listSettings = fm.Field?.GetCustomAttribute<ListDrawerSettingsAttribute>();
+                DrawListField(label, value, type, hideLabel, listSettings);
                 return value;
             }
 
@@ -784,8 +785,10 @@ namespace Nodin.Editor
             return value;
         }
 
-        private void DrawListField(string label, object value, Type type, bool hideLabel)
+        private void DrawListField(string label, object value, Type type, bool hideLabel, ListDrawerSettingsAttribute settings = null)
         {
+            bool canDrag = settings?.DraggableItems != false;
+            bool canAdd = settings?.HideAddButton != true;
             if (value == null) return;
             var listType = type.GetGenericArguments()[0];
             var list = (System.Collections.IList)value;
@@ -804,14 +807,17 @@ namespace Nodin.Editor
             }
 
             // 右上角 + 按钮（覆盖在标题行右侧）
-            var lastRect = GUILayoutUtility.GetLastRect();
-            var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 1, 22, 18);
-            if (GUI.Button(btnRect, "+", EditorStyles.miniButton))
+            if (canAdd)
             {
-                RecordUndo("Nodin: 添加列表元素");
-                object defaultVal = listType.IsValueType ? Activator.CreateInstance(listType) : null;
-                list.Add(defaultVal);
-                GUI.changed = true;
+                var lastRect = GUILayoutUtility.GetLastRect();
+                var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 1, 22, 18);
+                if (GUI.Button(btnRect, "+", EditorStyles.miniButton))
+                {
+                    RecordUndo("Nodin: 添加列表元素");
+                    object defaultVal = listType.IsValueType ? Activator.CreateInstance(listType) : null;
+                    list.Add(defaultVal);
+                    GUI.changed = true;
+                }
             }
 
             if (!expanded) return;
@@ -831,8 +837,8 @@ namespace Nodin.Editor
             bool isDraggingThisList = _dragListKey == foldKey && _dragSrcIndex >= 0;
             bool isPendingThisList = _pendingDragListKey == foldKey && _pendingDragSrcIndex >= 0;
 
-            // 只在 Repaint 时收集行 Rect
-            if (evtType == EventType.Repaint)
+            // 只在拖拽中的列表绘制时清理/收集行 Rect（防止其它列表覆盖）
+            if (evtType == EventType.Repaint && isDraggingThisList)
                 _dragRowRects.Clear();
 
             // ── 拖拽过程中更新目标位置 ──
@@ -869,6 +875,7 @@ namespace Nodin.Editor
                     _dragDstIndex = _pendingDragSrcIndex;
                     isDraggingThisList = true;
                     _dragMouseOffsetY = 0;
+                    _dragRowRects.Clear(); // 清除过时 Rect，等待下次 Repaint 用当前列表的 Rect 填充
                     GUI.changed = true;
                     e.Use();
                 }
@@ -896,14 +903,17 @@ namespace Nodin.Editor
                 EditorGUILayout.BeginHorizontal();
 
                 // ── 拖拽把手（≡ 视觉提示，不是按钮）──
-                var gripStyle = new GUIStyle(EditorStyles.miniLabel)
+                if (canDrag)
                 {
-                    alignment = TextAnchor.MiddleCenter,
-                    fontStyle = FontStyle.Bold,
-                    fontSize = 12,
-                    padding = new RectOffset(0, 0, 0, 0)
-                };
-                GUILayout.Label("≡", gripStyle, GUILayout.Width(16), GUILayout.Height(16));
+                    var gripStyle = new GUIStyle(EditorStyles.miniLabel)
+                    {
+                        alignment = TextAnchor.MiddleCenter,
+                        fontStyle = FontStyle.Bold,
+                        fontSize = 12,
+                        padding = new RectOffset(0, 0, 0, 0)
+                    };
+                    GUILayout.Label("≡", gripStyle, GUILayout.Width(16), GUILayout.Height(16));
+                }
 
                 // ── 字段值绘制 ──
                 // 拖拽中的行：半透明 + 禁用交互
@@ -988,8 +998,8 @@ namespace Nodin.Editor
 
                 EditorGUILayout.EndHorizontal();
 
-                // 记录整行 Rect（EndHorizontal 后 GetLastRect 可拿到完整行区域）
-                if (evtType == EventType.Repaint)
+                // 记录整行 Rect（仅拖拽中的列表，防止其它列表覆盖）
+                if (evtType == EventType.Repaint && isDraggingThisList)
                 {
                     var lastRowRect = GUILayoutUtility.GetLastRect();
                     _dragRowRects.Add(lastRowRect);
@@ -997,7 +1007,7 @@ namespace Nodin.Editor
 
                 // ── 空白区域拖拽检测：MouseDown 没被字段/按钮消费 → 候选拖拽 ──
                 // 用 e.type 而非 evtType，因为按钮消费事件后 e.type 会变成 Used
-                if (e.type == EventType.MouseDown && e.button == 0 && !isDraggingThisList && !isPendingThisList)
+                if (canDrag && e.type == EventType.MouseDown && e.button == 0 && !isDraggingThisList && !isPendingThisList)
                 {
                     var lastRow = GUILayoutUtility.GetLastRect();
                     if (lastRow.Contains(e.mousePosition))

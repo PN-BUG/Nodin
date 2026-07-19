@@ -8,6 +8,9 @@ using UnityEditor;
 /// <summary>用于测试条件显示的颜色枚举</summary>
 public enum ColorOption { Red, Blue, Green }
 
+/// <summary>用于测试 EnumToggleButtons 的武器类型枚举</summary>
+public enum WeaponType { Sword, Axe, Bow, Staff }
+
 /// <summary>
 /// Nodin 所有标签效果测试脚本
 /// 挂载到任意 GameObject 即可在 Inspector 中查看效果
@@ -34,7 +37,28 @@ public class NodinTest : NodinMonoBehaviour
     public float labeledFloat = 3.14f;
 
     // ══════════════════════════════════════════════════════════
-    //  2. InfoBox — 信息提示框
+    //  2. Title — 标题
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("标签 & 显示")]
+    [Title("基础属性", "角色的核心数值")]
+    [LabelText("生命值")]
+    public int titleHP = 100;
+
+    [FoldoutGroup("标签 & 显示")]
+    [Title("高级属性", TitleAlignment.Center, HorizontalLine = false)]
+    [LabelText("暴击率")]
+    public float titleCritRate = 0.15f;
+
+    // ══════════════════════════════════════════════════════════
+    //  3. DisplayAsString — 以字符串显示
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("标签 & 显示")]
+    [DisplayAsString]
+    [LabelText("只读文本展示")]
+    public string displayAsString = "这段文本以只读字符串形式显示";
+
+    // ══════════════════════════════════════════════════════════
+    //  4. InfoBox — 信息提示框
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("信息提示")]
     [InfoBox("这是一条普通信息提示")]
@@ -57,7 +81,7 @@ public class NodinTest : NodinMonoBehaviour
     public string conditionalInfoField = "";
 
     // ══════════════════════════════════════════════════════════
-    //  3. FoldoutGroup — 可折叠分组
+    //  5. FoldoutGroup — 可折叠分组
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("折叠分组A", true)]
     [LabelText("字段 A1")]
@@ -85,7 +109,7 @@ public class NodinTest : NodinMonoBehaviour
     public string subField2 = "父分组下的子分组2";
 
     // ══════════════════════════════════════════════════════════
-    //  4. BoxGroup — 带标题的盒子分组
+    //  6. BoxGroup — 带标题的盒子分组
     // ══════════════════════════════════════════════════════════
     [BoxGroup("盒子分组")]
     [LabelText("盒子字段 1")]
@@ -96,7 +120,43 @@ public class NodinTest : NodinMonoBehaviour
     public int boxField2 = 100;
 
     // ══════════════════════════════════════════════════════════
-    //  5. 条件显示 & 启用
+    //  7. ToggleGroup — 可切换分组
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("切换分组")]
+    [ToggleGroup("特效开关")]
+    [LabelText("启用粒子特效")]
+    public bool enableParticles = true;
+
+    [FoldoutGroup("切换分组")]
+    [ToggleGroup("特效开关")]
+    [LabelText("粒子颜色")]
+    public Color particleColor = Color.cyan;
+
+    [FoldoutGroup("切换分组")]
+    [ToggleGroup("特效开关")]
+    [LabelText("粒子大小")]
+    public float particleSize = 1.5f;
+
+    // ══════════════════════════════════════════════════════════
+    //  8. HorizontalGroup — 水平排列
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("水平布局")]
+    [HorizontalGroup("属性行")]
+    [LabelText("力量")]
+    public int hStr = 10;
+
+    [FoldoutGroup("水平布局")]
+    [HorizontalGroup("属性行")]
+    [LabelText("敏捷")]
+    public int hAgi = 8;
+
+    [FoldoutGroup("水平布局")]
+    [HorizontalGroup("属性行")]
+    [LabelText("智力")]
+    public int hInt = 12;
+
+    // ══════════════════════════════════════════════════════════
+    //  9. 条件显示 & 启用
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("条件显示")]
     [LabelText("显示秘密")]
@@ -127,7 +187,7 @@ public class NodinTest : NodinMonoBehaviour
     public string greenOnlyField = "只有选 Green 时才显示";
 
     // ══════════════════════════════════════════════════════════
-    //  6. EnableIf / DisableIf — 条件启用/禁用
+    //  10. EnableIf / DisableIf — 条件启用/禁用
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("条件启用")]
     [LabelText("锁定编辑")]
@@ -144,7 +204,7 @@ public class NodinTest : NodinMonoBehaviour
     public string disabledField = "锁定后变灰不可编辑";
 
     // ══════════════════════════════════════════════════════════
-    //  7. ReadOnly — 只读
+    //  11. ReadOnly — 只读
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("只读字段")]
     [ReadOnly]
@@ -157,7 +217,38 @@ public class NodinTest : NodinMonoBehaviour
     public int readOnlyNumber = 999;
 
     // ══════════════════════════════════════════════════════════
-    //  8. MultiLineProperty — 多行文本
+    //  12. MinValue — 最小值约束
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("数值约束")]
+    [MinValue(0)]
+    [LabelText("生命值（≥0）")]
+    public float minHP = 100f;
+
+    [FoldoutGroup("数值约束")]
+    [MinValue(1)]
+    [LabelText("等级（≥1）")]
+    public int minLevel = 1;
+
+    [FoldoutGroup("数值约束")]
+    [MinValue(0.01)]
+    [LabelText("倍率（>0）")]
+    public float minMultiplier = 1.0f;
+
+    // ══════════════════════════════════════════════════════════
+    //  13. Required — 必填校验
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("数值约束")]
+    [Required("请指定玩家名称！")]
+    [LabelText("玩家名称（必填）")]
+    public string requiredName = "";
+
+    [FoldoutGroup("数值约束")]
+    [Required]
+    [LabelText("头像（必填）")]
+    public Sprite requiredAvatar;
+
+    // ══════════════════════════════════════════════════════════
+    //  14. MultiLineProperty — 多行文本
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("多行文本")]
     [MultiLineProperty(5)]
@@ -170,7 +261,7 @@ public class NodinTest : NodinMonoBehaviour
     public string shortMultiLine = "简短的\n多行文本";
 
     // ══════════════════════════════════════════════════════════
-    //  9. Button — 按钮
+    //  15. Button — 按钮
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("按钮测试")]
     [Button("普通按钮")]
@@ -210,7 +301,7 @@ public class NodinTest : NodinMonoBehaviour
     }
 
     // ══════════════════════════════════════════════════════════
-    //  10. GUIColor — GUI 颜色
+    //  16. GUIColor — GUI 颜色
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("颜色测试")]
     [GUIColor(0f, 1f, 0f)]
@@ -228,7 +319,7 @@ public class NodinTest : NodinMonoBehaviour
     public int purpleField = 777;
 
     // ══════════════════════════════════════════════════════════
-    //  11. ShowInInspector — 强制显示非 public 字段
+    //  17. ShowInInspector — 强制显示非 public 字段
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("非 Public 字段")]
     [ShowInInspector]
@@ -241,7 +332,7 @@ public class NodinTest : NodinMonoBehaviour
     protected int _protectedField = 42;
 
     // ══════════════════════════════════════════════════════════
-    //  12. ValueDropdown — 下拉列表
+    //  18. ValueDropdown — 下拉列表
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("下拉列表")]
     [ValueDropdown(nameof(GetWeaponOptions))]
@@ -257,7 +348,7 @@ public class NodinTest : NodinMonoBehaviour
     private string[] GetPotionOptions() => new[] { "治疗药水", "魔力药水", "力量药水", "速度药水" };
 
     // ══════════════════════════════════════════════════════════
-    //  13. FolderPath — 文件夹路径选择器
+    //  19. FolderPath — 文件夹路径选择器
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("路径选择")]
     [FolderPath]
@@ -270,7 +361,7 @@ public class NodinTest : NodinMonoBehaviour
     public string absolutePath = "";
 
     // ══════════════════════════════════════════════════════════
-    //  14. OnValueChanged — 值改变回调
+    //  20. OnValueChanged — 值改变回调
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("值改变回调")]
     [LabelText("有回调的字段")]
@@ -283,7 +374,7 @@ public class NodinTest : NodinMonoBehaviour
     }
 
     // ══════════════════════════════════════════════════════════
-    //  15. ListDrawerSettings — List 绘制设置
+    //  21. ListDrawerSettings — List 绘制设置
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("列表设置")]
     [LabelText("带索引标签的列表")]
@@ -301,7 +392,7 @@ public class NodinTest : NodinMonoBehaviour
     public List<float> noAddList = new List<float> { 1.1f, 2.2f, 3.3f };
 
     // ══════════════════════════════════════════════════════════
-    //  16. DictionaryDrawerSettings — Dictionary 绘制设置
+    //  22. DictionaryDrawerSettings — Dictionary 绘制设置
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("字典设置")]
     [LabelText("自定义键值标签")]
@@ -324,7 +415,7 @@ public class NodinTest : NodinMonoBehaviour
     };
 
     // ══════════════════════════════════════════════════════════
-    //  17. OnInspectorGUI — 自定义 GUI 绘制
+    //  23. OnInspectorGUI — 自定义 GUI 绘制
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("自定义 GUI")]
     [LabelText("玩家名称")]
@@ -346,7 +437,7 @@ public class NodinTest : NodinMonoBehaviour
 #endif
 
     // ══════════════════════════════════════════════════════════
-    //  18. AssetsOnly — 仅允许 Asset
+    //  24. AssetsOnly — 仅允许 Asset
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("资产限制")]
     [AssetsOnly]
@@ -368,4 +459,11 @@ public class NodinTest : NodinMonoBehaviour
     [ShowIf(nameof(showSecret))]
     [GUIColor("#FFD700")]
     public string conditionalColoredField = "条件显示 + 金色";
+
+    [FoldoutGroup("混合测试")]
+    [Title("组合效果", "Title + MinValue + Required")]
+    [MinValue(0)]
+    [Required("攻击力不能为空")]
+    [LabelText("攻击力")]
+    public float mixedAttack = 25f;
 }
