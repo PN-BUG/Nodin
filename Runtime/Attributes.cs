@@ -64,6 +64,8 @@ namespace Nodin
     public class LabelTextAttribute : Attribute
     {
         public string Text { get; }
+        /// <summary>为 true 时根据文字实际像素宽度自动计算标签宽度，否则使用默认固定宽度</summary>
+        public bool AutoWidth { get; set; }
         public LabelTextAttribute(string text) { Text = text; }
     }
 

@@ -43,6 +43,13 @@ namespace Nodin.Editor
         // ── 复用 GUIContent（避免每帧分配）──
         private static readonly GUIContent _cachedLabel = new GUIContent();
 
+        // ── 标签宽度：默认固定宽度，[LabelText(AutoWidth = true)] 时按文字像素自适应 ──
+        private const float DefaultLabelWidth = 130f;
+        private static readonly Dictionary<string, float> _labelWidthCache = new();
+        private const float LabelWidthMin = 80f;
+        private const float LabelWidthMax = 300f;
+        private const float LabelWidthPadding = 28f;
+
         // ── List 拖拽排序状态 ──
         private static string _dragListKey;
         private static int _dragSrcIndex = -1;
@@ -566,6 +573,14 @@ namespace Nodin.Editor
                 return;
             }
 
+            // ── 标签宽度：默认使用固定宽度；[LabelText(AutoWidth = true)] 时按文字像素自适应 ──
+            float prevLabelWidth = EditorGUIUtility.labelWidth;
+            if (fm.HideLabel == null)
+            {
+                bool autoW = fm.LabelText != null && fm.LabelText.AutoWidth;
+                EditorGUIUtility.labelWidth = autoW ? CalcLabelWidth(label) : DefaultLabelWidth;
+            }
+
             EditorGUI.BeginChangeCheck();
 
             var fieldType = fm.Field.FieldType;
@@ -604,7 +619,24 @@ namespace Nodin.Editor
 
             DrawRequiredWarning(fm, value);
 
+            EditorGUIUtility.labelWidth = prevLabelWidth;
             GUI.enabled = prevEnabled;
+        }
+
+        /// <summary>
+        /// 根据标签文字实际像素宽度计算最优标签宽度。
+        /// 带缓存，避免每帧重复 CalcSize。
+        /// </summary>
+        private float CalcLabelWidth(string label)
+        {
+            if (_labelWidthCache.TryGetValue(label, out float cached))
+                return cached;
+
+            _cachedLabel.text = label;
+            float textWidth = EditorStyles.label.CalcSize(_cachedLabel).x;
+            float width = Mathf.Clamp(textWidth + LabelWidthPadding + EditorGUI.indentLevel * 14f, LabelWidthMin, LabelWidthMax);
+            _labelWidthCache[label] = width;
+            return width;
         }
 
         /// <summary>绘制 Title 标题</summary>
