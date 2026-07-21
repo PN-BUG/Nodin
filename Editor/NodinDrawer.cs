@@ -566,7 +566,7 @@ namespace Nodin.Editor
                 var displayValue = fm.Field.GetValue(_target);
                 var strValue = displayValue?.ToString() ?? "null";
                 _cachedLabel.text = label;
-                _cachedLabel.tooltip = "";
+                _cachedLabel.tooltip = fm.PropertyTooltip?.Tooltip ?? "";
                 EditorGUILayout.LabelField(_cachedLabel, new GUIContent(strValue));
                 DrawRequiredWarning(fm, displayValue);
                 GUI.enabled = prevEnabled;
@@ -594,6 +594,17 @@ namespace Nodin.Editor
                 // MinValue 约束
                 if (fm.MinValue != null)
                     newValue = ClampMin(newValue, fm.MinValue.Min);
+
+                // MaxValue 约束
+                if (fm.MaxValue != null)
+                    newValue = ClampMax(newValue, fm.MaxValue.Max);
+
+                // Range 约束（同时限制最小值和最大值）
+                if (fm.Range != null)
+                {
+                    newValue = ClampMin(newValue, fm.Range.Min);
+                    newValue = ClampMax(newValue, fm.Range.Max);
+                }
 
                 fm.Field.SetValue(_target, newValue);
                 InvokeOnValueChanged(fm);
@@ -707,6 +718,19 @@ namespace Nodin.Editor
             }
         }
 
+        /// <summary>将数值限制到最大值</summary>
+        private static object ClampMax(object value, double max)
+        {
+            switch (value)
+            {
+                case int i: return (int)Math.Min(i, max);
+                case long l: return (long)Math.Min(l, max);
+                case float f: return (float)Math.Min(f, max);
+                case double d: return Math.Min(d, max);
+                default: return value;
+            }
+        }
+
         private void DrawInfoBox(FieldMeta fm)
         {
             if (fm.InfoBoxes == null) return;
@@ -771,7 +795,7 @@ namespace Nodin.Editor
                     var idx = Array.FindIndex(options, o => o == currentStr);
                     if (idx < 0) idx = 0;
                     _cachedLabel.text = label;
-                    _cachedLabel.tooltip = "";
+                    _cachedLabel.tooltip = fm.PropertyTooltip?.Tooltip ?? "";
                     idx = EditorGUILayout.Popup(hideLabel ? GUIContent.none : _cachedLabel, idx, options);
                     return Convert.ChangeType(options[idx], type);
                 }
@@ -779,7 +803,7 @@ namespace Nodin.Editor
 
             // 基本类型
             _cachedLabel.text = label;
-            _cachedLabel.tooltip = "";
+            _cachedLabel.tooltip = fm.PropertyTooltip?.Tooltip ?? "";
 
             if (type == typeof(bool)) return EditorGUILayout.Toggle(hideLabel ? GUIContent.none : _cachedLabel, (bool)value);
             if (type == typeof(int)) return EditorGUILayout.IntField(hideLabel ? GUIContent.none : _cachedLabel, (int)value);
@@ -1271,6 +1295,17 @@ namespace Nodin.Editor
 
         // ── 按钮绘制 ──────────────────────────────────────
 
+        /// <summary>仅绘制所有按钮（不分组），用于 Odin 共存场景下补充绘制</summary>
+        public void DrawButtonsOnly()
+        {
+            if (_methodMetas == null || _methodMetas.Length == 0) return;
+            foreach (var mm in _methodMetas)
+            {
+                if (!ShouldShowMethod(mm)) continue;
+                DrawButton(mm);
+            }
+        }
+
         private void DrawUngroupedButtons()
         {
             foreach (var mm in _methodMetas)
@@ -1369,6 +1404,9 @@ namespace Nodin.Editor
             public InfoBoxAttribute[] InfoBoxes;
             public OnValueChangedAttribute OnValueChanged;
             public MinValueAttribute MinValue;
+            public MaxValueAttribute MaxValue;
+            public RangeAttribute Range;
+            public PropertyTooltipAttribute PropertyTooltip;
             public HorizontalGroupAttribute HorizontalGroup;
             public TitleAttribute Title;
             public RequiredAttribute Required;
@@ -1411,6 +1449,9 @@ namespace Nodin.Editor
                 fm.InfoBoxes = field.GetCustomAttributes<InfoBoxAttribute>().ToArray();
                 fm.OnValueChanged = field.GetCustomAttribute<OnValueChangedAttribute>();
                 fm.MinValue = field.GetCustomAttribute<MinValueAttribute>();
+                fm.MaxValue = field.GetCustomAttribute<MaxValueAttribute>();
+                fm.Range = field.GetCustomAttribute<RangeAttribute>();
+                fm.PropertyTooltip = field.GetCustomAttribute<PropertyTooltipAttribute>();
                 fm.HorizontalGroup = field.GetCustomAttribute<HorizontalGroupAttribute>();
                 fm.Title = field.GetCustomAttribute<TitleAttribute>();
                 fm.Required = field.GetCustomAttribute<RequiredAttribute>();

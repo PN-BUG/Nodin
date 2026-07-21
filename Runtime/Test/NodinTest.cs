@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Nodin;
+using RangeAttribute = Nodin.RangeAttribute;
+
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -235,6 +237,35 @@ public class NodinTest : NodinMonoBehaviour
     public float minMultiplier = 1.0f;
 
     // ══════════════════════════════════════════════════════════
+    //  12b. MaxValue — 最大值约束
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("数值约束")]
+    [MaxValue(9999)]
+    [LabelText("最大生命值（≤9999）")]
+    public float maxHP = 100f;
+
+    [FoldoutGroup("数值约束")]
+    [MaxValue(100)]
+    [LabelText("最大等级（≤100）")]
+    public int maxLevel = 1;
+
+    [FoldoutGroup("数值约束")]
+    [MinValue(1)]
+    [MaxValue(3)]
+    [LabelText("速度倍率（1~3）")]
+    public float speedFactor = 1.0f;
+
+    [FoldoutGroup("数值约束")]
+    [Range(0, 100)]
+    [LabelText("进度（0~100）")]
+    public float progress = 50f;
+
+    [FoldoutGroup("数值约束")]
+    [Range(1, 99)]
+    [LabelText("端口号（1~99）")]
+    public int port = 80;
+
+    // ══════════════════════════════════════════════════════════
     //  13. Required — 必填校验
     // ══════════════════════════════════════════════════════════
     [FoldoutGroup("数值约束")]
@@ -259,6 +290,21 @@ public class NodinTest : NodinMonoBehaviour
     [MultiLineProperty(3)]
     [LabelText("3行文本")]
     public string shortMultiLine = "简短的\n多行文本";
+
+    // ══════════════════════════════════════════════════════════
+    //  14b. PropertyTooltip — 悬停提示
+    // ══════════════════════════════════════════════════════════
+    [FoldoutGroup("悬停提示")]
+    [PropertyTooltip("鼠标悬停在此字段上时，会显示这段提示文字。")]
+    [LabelText("带 Tooltip 的字段")]
+    public float tooltipFloat = 1.0f;
+
+    [FoldoutGroup("悬停提示")]
+    [PropertyTooltip("同时使用 LabelText 和 PropertyTooltip")]
+    [LabelText("组合使用")]
+    [MinValue(0)]
+    [MaxValue(100)]
+    public int tooltipWithConstraints = 50;
 
     // ══════════════════════════════════════════════════════════
     //  15. Button — 按钮

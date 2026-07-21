@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
@@ -93,6 +94,7 @@ namespace Nodin.Editor
     /// 自动通过 NodinDrawer 绘制；否则回退到默认 Inspector 绘制。
     /// </summary>
     [CustomEditor(typeof(MonoBehaviour), true), CanEditMultipleObjects]
+    [InitializeOnLoad]
     public class NodinMonoBehaviourFallbackEditor : UnityEditor.Editor
     {
         private NodinDrawer _drawer;
@@ -100,6 +102,46 @@ namespace Nodin.Editor
 
         // ── 按类型缓存检测结果，避免每次 OnEnable 重复反射 ──
         private static readonly Dictionary<System.Type, bool> _attrCache = new();
+
+        // ── Odin 共存：在 Inspector 头部绘制完毕后补充 Nodin 按钮 ──
+        private static bool _finishedHeaderHooked;
+        // 缓存：类型 → 是否含 ButtonAttribute 方法
+        private static readonly Dictionary<System.Type, bool> _buttonCache = new();
+
+        static NodinMonoBehaviourFallbackEditor()
+        {
+            if (!_finishedHeaderHooked)
+            {
+                _finishedHeaderHooked = true;
+                UnityEditor.Editor.finishedDefaultHeaderGUI += OnFinishedHeaderGUI;
+            }
+        }
+
+        private static void OnFinishedHeaderGUI(UnityEditor.Editor editor)
+        {
+            if (editor == null || editor.target == null) return;
+            // 仅处理 MonoBehaviour
+            if (!(editor.target is MonoBehaviour)) return;
+            // 如果当前编辑器就是 Nodin 自己的，则跳过（避免重复绘制）
+            if (editor.GetType().Namespace == "Nodin.Editor") return;
+
+            var type = editor.target.GetType();
+            if (!_buttonCache.TryGetValue(type, out var hasButtons))
+            {
+                hasButtons = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .Any(m => m.GetCustomAttribute<ButtonAttribute>() != null);
+                _buttonCache[type] = hasButtons;
+            }
+            if (!hasButtons) return;
+
+            // 为每个 target 绘制按钮
+            foreach (var t in editor.targets)
+            {
+                if (t == null) continue;
+                var drawer = new NodinDrawer(t, t as Object);
+                drawer.DrawButtonsOnly();
+            }
+        }
 
         private void OnEnable()
         {
