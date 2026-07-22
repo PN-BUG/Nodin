@@ -334,11 +334,15 @@ namespace Nodin.Editor
             EditorGUILayout.BeginHorizontal(GUILayout.Height(footerHeight - 6));
             GUILayout.Space(16);
 
+            // 默认操作 — 使用默认值并关闭（主按钮，强调色背景）
+            var prevBg = GUI.backgroundColor;
+            GUI.backgroundColor = Palette.BtnNormal;
             if (GUILayout.Button("使用默认值并关闭", GUILayout.Height(32)))
             {
                 SaveSettings(useDefaults: true);
                 Close();
             }
+            GUI.backgroundColor = prevBg;
 
             GUILayout.FlexibleSpace();
 
@@ -350,6 +354,15 @@ namespace Nodin.Editor
 
             GUILayout.Space(16);
             EditorGUILayout.EndHorizontal();
+        }
+
+        /// <summary>窗口被关闭时（包括点 X 关闭）也标记为已初始化，避免反复弹出</summary>
+        private void OnDestroy()
+        {
+            if (!NodinInitializer.IsInitialized)
+            {
+                SaveSettings(useDefaults: true);
+            }
         }
 
         // ── 辅助 ──────────────────────────────────────────
