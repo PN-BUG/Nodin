@@ -189,4 +189,32 @@ namespace Nodin.Editor
             return false;
         }
     }
+
+    /// <summary>Nodin 菜单入口 — 重新打开初始化设置面板</summary>
+    internal static class NodinMenu
+    {
+        [MenuItem("Tools/Nodin/初始化设置")]
+        private static void OpenInitWindow()
+        {
+            var win = EditorWindow.GetWindow<NodinInitWindow>(true, "Nodin 初始化设置", true);
+            win.minSize = new Vector2(520, 640);
+            win.maxSize = new Vector2(520, 640);
+            win.ShowUtility();
+        }
+
+        [MenuItem("Tools/Nodin/选中设置资产")]
+        private static void SelectSettingsAsset()
+        {
+            var path = EditorPrefs.GetString("Nodin.SettingsPath", "Assets/NodinSettings.asset");
+            var asset = AssetDatabase.LoadAssetAtPath<NodinSettings>(path);
+            if (asset != null)
+            {
+                Selection.activeObject = asset;
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("Nodin", $"未找到设置资产：{path}\n请先运行「初始化设置」。", "确定");
+            }
+        }
+    }
 }

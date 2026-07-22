@@ -44,11 +44,8 @@ namespace Nodin.Editor
         private static readonly GUIContent _cachedLabel = new GUIContent();
 
         // ── 标签宽度：默认固定宽度，[LabelText(AutoWidth = true)] 时按文字像素自适应 ──
-        private const float DefaultLabelWidth = 130f;
+        // 实际值由 NodinSettings SO 提供，回退到硬编码默认值
         private static readonly Dictionary<string, float> _labelWidthCache = new();
-        private const float LabelWidthMin = 80f;
-        private const float LabelWidthMax = 300f;
-        private const float LabelWidthPadding = 28f;
 
         // ── List 拖拽排序状态 ──
         private static string _dragListKey;
@@ -301,17 +298,17 @@ namespace Nodin.Editor
             // 绘制带 toggle 的标题栏
             var rect = EditorGUILayout.GetControlRect(GUILayout.Height(26));
             var bgRect = rect;
-            EditorGUI.DrawRect(bgRect, new Color(0.26f, 0.52f, 0.88f, 0.18f));
+            EditorGUI.DrawRect(bgRect, NodinSettings.GroupHeaderBg);
 
             var barRect = new Rect(rect.x, rect.y, 3, rect.height);
-            EditorGUI.DrawRect(barRect, new Color(0.3f, 0.55f, 0.95f, 0.9f));
+            EditorGUI.DrawRect(barRect, NodinSettings.AccentColor);
 
             // 折叠箭头（点击切换展开）
             var arrowRect = new Rect(rect.x + 8, rect.y, 16, rect.height);
             var expanded = _toggleGroupExpanded[groupName];
             var arrow = expanded ? "▼" : "▶";
             var oldColor = GUI.color;
-            GUI.color = new Color(0.6f, 0.65f, 0.75f, 1f);
+            GUI.color = NodinSettings.ArrowColor;
             GUI.Label(arrowRect, arrow, EditorStyles.miniLabel);
             GUI.color = oldColor;
 
@@ -343,7 +340,12 @@ namespace Nodin.Editor
 
             // 标题文字（点击文字也能切换 toggle）
             var labelRect = new Rect(rect.x + 48, rect.y, rect.width - 48, rect.height);
-            EditorGUI.LabelField(labelRect, groupName, EditorStyles.boldLabel);
+            var toggleHeaderStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = NodinSettings.GroupHeaderFontSize,
+                normal = { textColor = NodinSettings.LabelColor }
+            };
+            EditorGUI.LabelField(labelRect, groupName, toggleHeaderStyle);
 
             if (Event.current.type == EventType.MouseDown && labelRect.Contains(Event.current.mousePosition))
             {
@@ -398,22 +400,27 @@ namespace Nodin.Editor
 
             var bgRect = rect;
             if (isSubGroup)
-                EditorGUI.DrawRect(bgRect, new Color(0.22f, 0.22f, 0.24f, 0.6f));
+                EditorGUI.DrawRect(bgRect, NodinSettings.GroupSubHeaderBg);
             else
-                EditorGUI.DrawRect(bgRect, new Color(0.26f, 0.52f, 0.88f, 0.18f));
+                EditorGUI.DrawRect(bgRect, NodinSettings.GroupHeaderBg);
 
             var barRect = new Rect(rect.x, rect.y, 3, rect.height);
-            EditorGUI.DrawRect(barRect, isSubGroup ? new Color(0.4f, 0.4f, 0.45f, 0.8f) : new Color(0.3f, 0.55f, 0.95f, 0.9f));
+            EditorGUI.DrawRect(barRect, isSubGroup ? new Color(0.4f, 0.4f, 0.45f, 0.8f) : NodinSettings.AccentColor);
 
             var arrowRect = new Rect(rect.x + 8, rect.y, 16, rect.height);
             var arrow = expanded ? "▼" : "▶";
             var oldColor = GUI.color;
-            GUI.color = new Color(0.6f, 0.65f, 0.75f, 1f);
+            GUI.color = NodinSettings.ArrowColor;
             GUI.Label(arrowRect, arrow, EditorStyles.miniLabel);
             GUI.color = oldColor;
 
             var labelRect = new Rect(rect.x + 26, rect.y, rect.width - 26, rect.height);
-            EditorGUI.LabelField(labelRect, title, EditorStyles.boldLabel);
+            var headerStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = NodinSettings.GroupHeaderFontSize,
+                normal = { textColor = NodinSettings.LabelColor }
+            };
+            EditorGUI.LabelField(labelRect, title, headerStyle);
         }
 
         // ── 字段绘制 ──────────────────────────────────────
@@ -578,7 +585,7 @@ namespace Nodin.Editor
             if (fm.HideLabel == null)
             {
                 bool autoW = fm.LabelText != null && fm.LabelText.AutoWidth;
-                EditorGUIUtility.labelWidth = autoW ? CalcLabelWidth(label) : DefaultLabelWidth;
+                EditorGUIUtility.labelWidth = autoW ? CalcLabelWidth(label) : NodinSettings.LabelWidth;
             }
 
             EditorGUI.BeginChangeCheck();
@@ -645,7 +652,7 @@ namespace Nodin.Editor
 
             _cachedLabel.text = label;
             float textWidth = EditorStyles.label.CalcSize(_cachedLabel).x;
-            float width = Mathf.Clamp(textWidth + LabelWidthPadding + EditorGUI.indentLevel * 14f, LabelWidthMin, LabelWidthMax);
+            float width = Mathf.Clamp(textWidth + NodinSettings.LabelWidthPadding + EditorGUI.indentLevel * 14f, NodinSettings.LabelWidthMin, NodinSettings.LabelWidthMax);
             _labelWidthCache[label] = width;
             return width;
         }
@@ -1339,10 +1346,10 @@ namespace Nodin.Editor
             var label = mm.Button.Name ?? mm.LabelText?.Text ?? ObjectNames.NicifyVariableName(mm.Method.Name);
             var height = mm.Button.Size switch
             {
-                ButtonSizes.Small => 20,
-                ButtonSizes.Medium => 28,
-                ButtonSizes.Large => 36,
-                _ => 28,
+                ButtonSizes.Small => NodinSettings.ButtonHeightSmall,
+                ButtonSizes.Medium => NodinSettings.ButtonHeightMedium,
+                ButtonSizes.Large => NodinSettings.ButtonHeightLarge,
+                _ => NodinSettings.ButtonHeightMedium,
             };
 
             var enabled = mm.EnableIf == null || EvaluateCondition(mm.EnableIf.MemberName, mm.EnableIf.Value);
