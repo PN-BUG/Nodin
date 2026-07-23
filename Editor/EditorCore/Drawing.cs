@@ -20,48 +20,10 @@ public static class Drawing
 
     #region 圆角矩形
 
-    /// <summary>绘制圆角矩形：中心矩形 + 4 角纹理合成</summary>
+    /// <summary>绘制圆角矩形（当前退化为方形，角纹理合成在 IMGUI 下有渲染伪影）</summary>
     public static void DrawRoundedRect(Rect rect, Color color, float radius = 8f)
     {
-        if (radius <= 0.5f || rect.width < 2f || rect.height < 2f)
-        {
-            EditorGUI.DrawRect(rect, color);
-            return;
-        }
-
-        float maxRadius = Mathf.Min(radius, rect.width * 0.5f, rect.height * 0.5f);
-        if (maxRadius < 1.25f)
-        {
-            EditorGUI.DrawRect(rect, color);
-            return;
-        }
-
-        int size = Mathf.CeilToInt(maxRadius);
-
-        // 中心矩形（全宽，不含上下角区域）
-        float centerH = rect.height - size * 2f;
-        if (centerH > 0f)
-            EditorGUI.DrawRect(new Rect(rect.x, rect.y + size, rect.width, centerH), color);
-
-        // 左右边缘条（角之间的竖条，仅在宽度足够时需要）
-        if (size < rect.width)
-        {
-            // 已被中心矩形覆盖，无需额外绘制
-        }
-
-        // 4 角纹理（圆角区域：圆内有色，圆外透明）
-        var tlRect = new Rect(rect.x, rect.y, size, size);
-        var trRect = new Rect(rect.xMax - size, rect.y, size, size);
-        var blRect = new Rect(rect.x, rect.yMax - size, size, size);
-        var brRect = new Rect(rect.xMax - size, rect.yMax - size, size, size);
-
-        var prevColor = GUI.color;
-        GUI.color = Color.white;
-        GUI.DrawTexture(tlRect, GetCornerTex(size, color, 0), ScaleMode.StretchToFill);
-        GUI.DrawTexture(trRect, GetCornerTex(size, color, 1), ScaleMode.StretchToFill);
-        GUI.DrawTexture(blRect, GetCornerTex(size, color, 3), ScaleMode.StretchToFill);
-        GUI.DrawTexture(brRect, GetCornerTex(size, color, 2), ScaleMode.StretchToFill);
-        GUI.color = prevColor;
+        EditorGUI.DrawRect(rect, color);
     }
 
     // ── 四个方向的圆角纹理缓存 ──
