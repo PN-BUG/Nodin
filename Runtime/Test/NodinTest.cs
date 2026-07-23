@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Collections.Generic;
 using UnityEngine;
 using Nodin;
@@ -513,3 +514,4 @@ public class NodinTest : NodinMonoBehaviour
     [LabelText("攻击力")]
     public float mixedAttack = 25f;
 }
+#endif
