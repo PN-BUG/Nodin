@@ -351,14 +351,14 @@ namespace Nodin
         public MaxValueAttribute(double max) { Max = max; }
     }
 
-    /// <summary>同时限制数值字段的最小值和最大值（等价于 MinValue + MaxValue）</summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
-    public class RangeAttribute : Attribute
-    {
-        public double Min { get; }
-        public double Max { get; }
-        public RangeAttribute(double min, double max) { Min = min; Max = max; }
-    }
+    // /// <summary>同时限制数值字段的最小值和最大值（等价于 MinValue + MaxValue）</summary>
+    // [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
+    // public class RangeAttribute : Attribute
+    // {
+    //     public double Min { get; }
+    //     public double Max { get; }
+    //     public RangeAttribute(double min, double max) { Min = min; Max = max; }
+    // }
 
     // ══════════════════════════════════════════════════════════
     //  水平布局

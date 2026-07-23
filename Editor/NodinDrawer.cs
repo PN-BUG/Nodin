@@ -606,12 +606,12 @@ namespace Nodin.Editor
                 if (fm.MaxValue != null)
                     newValue = ClampMax(newValue, fm.MaxValue.Max);
 
-                // Range 约束（同时限制最小值和最大值）
-                if (fm.Range != null)
-                {
-                    newValue = ClampMin(newValue, fm.Range.Min);
-                    newValue = ClampMax(newValue, fm.Range.Max);
-                }
+                // // Range 约束（同时限制最小值和最大值）
+                // if (fm.Range != null)
+                // {
+                //     newValue = ClampMin(newValue, fm.Range.Min);
+                //     newValue = ClampMax(newValue, fm.Range.Max);
+                // }
 
                 fm.Field.SetValue(_target, newValue);
                 InvokeOnValueChanged(fm);

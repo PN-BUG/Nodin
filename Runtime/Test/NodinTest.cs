@@ -1,9 +1,7 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using UnityEngine;
-using Nodin;
-using RangeAttribute = Nodin.RangeAttribute;
-
+using Nodin; 
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
