@@ -36,6 +36,12 @@ public static class Styles
     private static GUIStyle _styleKeyCap;
     private static GUIStyle _styleHiddenItemName;
     private static GUIStyle _styleHiddenItemDesc;
+    // ── LeftPanel / RightPanel 每帧复用样式（消除 OnGUI 内 GUIStyle 分配）──
+    private static GUIStyle _styleSearchPlaceholder;
+    private static GUIStyle _styleSortButton;
+    private static GUIStyle _styleFoldButton;
+    private static GUIStyle _styleMiniLabelBoldCenter;
+    private static GUIStyle _styleCategoryTagSearch;
 
     private static Texture2D _texWhite;
     private static Texture2D _texHover;
@@ -79,6 +85,13 @@ public static class Styles
     public static GUIStyle KeyCap           => EnsureInit() ? _styleKeyCap : null;
     public static GUIStyle HiddenItemName   => EnsureInit() ? _styleHiddenItemName : null;
     public static GUIStyle HiddenItemDesc   => EnsureInit() ? _styleHiddenItemDesc : null;
+
+    // ── LeftPanel / RightPanel 复用样式 ──
+    public static GUIStyle SearchPlaceholder      => EnsureInit() ? _styleSearchPlaceholder : null;
+    public static GUIStyle SortButton             => EnsureInit() ? _styleSortButton : null;
+    public static GUIStyle FoldButton             => EnsureInit() ? _styleFoldButton : null;
+    public static GUIStyle MiniLabelBoldCenter    => EnsureInit() ? _styleMiniLabelBoldCenter : null;
+    public static GUIStyle CategoryTagSearch      => EnsureInit() ? _styleCategoryTagSearch : null;
     #endregion
 
     #region 样式初始化
@@ -326,6 +339,41 @@ public static class Styles
             fontSize = 9,
             normal = { textColor = Theme.ClrTextDim },
             clipping = TextClipping.Clip
+        };
+
+        // ── LeftPanel / RightPanel 复用样式初始化 ──
+        _styleSearchPlaceholder = new GUIStyle(EditorStyles.miniLabel)
+        {
+            normal = { textColor = Theme.ClrTextDim },
+            alignment = TextAnchor.MiddleLeft
+        };
+
+        _styleSortButton = new GUIStyle(EditorStyles.miniLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 10
+        };
+
+        _styleFoldButton = new GUIStyle(EditorStyles.miniLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 12,
+            fontStyle = FontStyle.Bold
+        };
+
+        _styleMiniLabelBoldCenter = new GUIStyle(EditorStyles.miniLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontStyle = FontStyle.Bold,
+            fontSize = 12
+        };
+
+        _styleCategoryTagSearch = new GUIStyle(EditorStyles.miniLabel)
+        {
+            fontStyle = FontStyle.Italic,
+            fontSize = 9,
+            alignment = TextAnchor.MiddleLeft,
+            padding = new RectOffset(4, 4, 0, 0)
         };
 
         _stylesReady = true;

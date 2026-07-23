@@ -20,7 +20,7 @@ public static class Drawing
 
     #region 圆角矩形
 
-    /// <summary>绘制矩形背景；当圆角分支过于复杂、半径过小时直接退化为普通方形，避免编辑器 UI 角部畸形。</summary>
+    /// <summary>绘制圆角矩形：中心矩形 + 4 角纹理合成</summary>
     public static void DrawRoundedRect(Rect rect, Color color, float radius = 8f)
     {
         if (radius <= 0.5f || rect.width < 2f || rect.height < 2f)
@@ -36,11 +36,36 @@ public static class Drawing
             return;
         }
 
-        // 这里不再做复杂的四角纹理裁切，直接稳定绘制矩形背景，避免圆角代码在编辑器中出现不可预期的边角异常。
-        EditorGUI.DrawRect(rect, color);
+        int size = Mathf.CeilToInt(maxRadius);
+
+        // 中心矩形（全宽，不含上下角区域）
+        float centerH = rect.height - size * 2f;
+        if (centerH > 0f)
+            EditorGUI.DrawRect(new Rect(rect.x, rect.y + size, rect.width, centerH), color);
+
+        // 左右边缘条（角之间的竖条，仅在宽度足够时需要）
+        if (size < rect.width)
+        {
+            // 已被中心矩形覆盖，无需额外绘制
+        }
+
+        // 4 角纹理（圆角区域：圆内有色，圆外透明）
+        var tlRect = new Rect(rect.x, rect.y, size, size);
+        var trRect = new Rect(rect.xMax - size, rect.y, size, size);
+        var blRect = new Rect(rect.x, rect.yMax - size, size, size);
+        var brRect = new Rect(rect.xMax - size, rect.yMax - size, size, size);
+
+        var prevColor = GUI.color;
+        GUI.color = Color.white;
+        GUI.DrawTexture(tlRect, GetCornerTex(size, color, 0), ScaleMode.StretchToFill);
+        GUI.DrawTexture(trRect, GetCornerTex(size, color, 1), ScaleMode.StretchToFill);
+        GUI.DrawTexture(blRect, GetCornerTex(size, color, 3), ScaleMode.StretchToFill);
+        GUI.DrawTexture(brRect, GetCornerTex(size, color, 2), ScaleMode.StretchToFill);
+        GUI.color = prevColor;
     }
 
     // ── 四个方向的圆角纹理缓存 ──
+    private const int MaxCornerCacheSize = 64;
     private static readonly System.Collections.Generic.Dictionary<int, Texture2D> _cornerTexCache
         = new System.Collections.Generic.Dictionary<int, Texture2D>();
 
@@ -60,6 +85,16 @@ public static class Drawing
         int key = CornerKey(size, color, corner);
         if (_cornerTexCache.TryGetValue(key, out var cached))
             return cached;
+
+        // 缓存上限保护：超限时清空重建
+        if (_cornerTexCache.Count >= MaxCornerCacheSize)
+        {
+            foreach (var oldTex in _cornerTexCache.Values)
+            {
+                if (oldTex != null) Object.DestroyImmediate(oldTex);
+            }
+            _cornerTexCache.Clear();
+        }
 
         // 用 2x 超采样生成纹理后缩放，获得抗锯齿边缘。
         // 圆角纹理必须用“单个角的四分之一圆”来生成，不能把圆心放到 2r 位置，否则会把整片角都渲染成满透明/满不透明的块状。
@@ -195,6 +230,7 @@ public static class Drawing
     }
 
     // ── 渐变纹理缓存（按颜色对缓存，避免逐像素 DrawRect 循环）──
+    private const int MaxGradientCacheSize = 32;
     private static readonly System.Collections.Generic.Dictionary<int, Texture2D> _gradientCache
         = new System.Collections.Generic.Dictionary<int, Texture2D>();
     private const int GradientTexWidth = 64;
@@ -233,6 +269,16 @@ public static class Drawing
         int key = ColorPairKey(left, right);
         if (_gradientCache.TryGetValue(key, out var cached))
             return cached;
+
+        // 缓存上限保护：超限时清空重建
+        if (_gradientCache.Count >= MaxGradientCacheSize)
+        {
+            foreach (var oldTex in _gradientCache.Values)
+            {
+                if (oldTex != null) Object.DestroyImmediate(oldTex);
+            }
+            _gradientCache.Clear();
+        }
 
         var tex = new Texture2D(GradientTexWidth, 1, TextureFormat.RGBA32, false);
         var px = new Color32[GradientTexWidth];
