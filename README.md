@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- **版本**: 1.4.0
+- **版本**: 1.5.0
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -13,8 +13,8 @@
 
 ### 分组 & 布局
 - **`[FoldoutGroup]`** - 将字段/方法归入可折叠分组，支持 '/' 分隔的子分组
-- **`[BoxGroup]`** - 将字段归入带标题的盒子分组
-- **`[ToggleGroup]`** - 布尔开关分组，bool 字段作为标题开关，控制组内其他字段的显示/隐藏
+- **`[BoxGroup]`** - 将字段归入带标题的盒子分组（无 FoldoutGroup 时自动作为后备分组）
+- **`[ToggleGroup]`** - 布尔开关分组，bool 字段作为标题开关，控制组内其他字段的显示/隐藏。可单独使用（自动创建顶层分组），也可与 FoldoutGroup 子分组组合（如 `[ToggleGroup("贴图")]` + `[FoldoutGroup("贴图/参数")]`）
 - **`[HorizontalGroup]`** - 将多个字段水平排列在同一行
 
 ### 标签 & 显示
@@ -188,6 +188,60 @@ public class WeaponSettings : MonoBehaviour
     [LabelText("音量")]
     [Range(0, 1)]
     public float volume = 1f;
+}
+```
+
+### 3b. ToggleGroup 开关分组
+
+`[ToggleGroup]` 可单独使用，bool 字段自动成为折叠头+开关，组内其他字段随开关显隐：
+
+```csharp
+using UnityEngine;
+using Nodin;
+
+public class EffectSettings : MonoBehaviour
+{
+    // ToggleGroup 单独使用 —— 不需要搭配 FoldoutGroup
+    [ToggleGroup("粒子特效")]
+    [LabelText("启用粒子特效")]
+    public bool enableParticles = true;
+
+    [ToggleGroup("粒子特效")]
+    [LabelText("粒子颜色")]
+    public Color particleColor = Color.cyan;
+
+    [ToggleGroup("粒子特效")]
+    [LabelText("粒子大小")]
+    public float particleSize = 1.5f;
+}
+```
+
+ToggleGroup 还可与 FoldoutGroup 子分组组合，实现开关内嵌套可折叠子分组：
+
+```csharp
+using UnityEngine;
+using Nodin;
+using UnityEditor;
+
+public class TextureRules : MonoBehaviour
+{
+    // 开关头
+    [ToggleGroup("贴图导入规则")]
+    [LabelText("启用贴图规则")]
+    public bool enableTextureRule;
+
+    [ToggleGroup("贴图导入规则")]
+    [LabelText("目标扩展名")]
+    public string extensions = ".png,.jpg";
+
+    // 子分组 —— 自动跟随 ToggleGroup 开关状态
+    [FoldoutGroup("贴图导入规则/公共参数")]
+    [LabelText("压缩方式")]
+    public TextureImporterCompression compression;
+
+    [FoldoutGroup("贴图导入规则/UI 参数")]
+    [LabelText("Sprite 模式")]
+    public SpriteImportMode spriteMode;
 }
 ```
 
@@ -412,7 +466,7 @@ public class DropdownExample : MonoBehaviour
 | 标签 & 显示 | `[LabelText]`、`[HideLabel]` |
 | 信息提示 | `[InfoBox]` Info/Warning/Error + 条件显示 |
 | 折叠分组 | `[FoldoutGroup]` 展开/折叠 + 子分组 |
-| 开关分组 | `[ToggleGroup]` bool 开关 + 组内字段显隐 |
+| 开关分组 | `[ToggleGroup]` bool 开关 + 组内字段显隐 + 子分组联动 |
 | 盒子分组 | `[BoxGroup]` |
 | 条件显示 | `[ShowIf]`、`[HideIf]` 布尔和枚举条件 |
 | 条件启用 | `[EnableIf]`、`[DisableIf]` |
@@ -494,6 +548,12 @@ public Dictionary<string, int> data;
 ```
 
 ## 更新日志
+
+### v1.5.0 (2026-07-24)
+- **BoxGroup 分组修复**: `[BoxGroup]` 现在正确作为分组绘制（此前仅检测但未参与分组渲染），当字段没有 `[FoldoutGroup]` 时自动作为后备分组
+- **ToggleGroup 独立使用**: `[ToggleGroup]` 可单独使用，无需搭配 `[FoldoutGroup]`，自动创建带折叠头+开关的顶层分组
+- **ToggleGroup + 子分组**: ToggleGroup 支持包含同名 FoldoutGroup 子分组（如 `[ToggleGroup("贴图导入规则")]` 内嵌 `[FoldoutGroup("贴图导入规则/公共参数")]`），子分组自动跟随开关状态
+- **代码顺序绘制**: 所有分组（FoldoutGroup / BoxGroup / ToggleGroup）按源码字段首次出现顺序绘制，不再分批渲染
 
 ### v1.4.0 (2026-07-19)
 - **List 拖拽排序**: 列表项新增左侧 `≡` 拖拽把手，按住拖动可自由排序，拖拽过程中显示蓝色插入指示线，被拖拽行半透明显示。拖拽放下即刻生效

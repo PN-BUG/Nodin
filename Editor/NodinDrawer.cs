@@ -182,12 +182,18 @@ namespace Nodin.Editor
             DrawUngroupedFields();
             DrawUngroupedButtons();
 
-            // ── ToggleGroup 绘制 ──
-            DrawAllToggleGroups();
-
             foreach (var groupName in _orderedTopGroups)
             {
-                DrawTopGroup(groupName);
+                if (groupName.StartsWith("__ToggleGroup_"))
+                {
+                    // ToggleGroup 按代码出现顺序内联绘制
+                    var toggleName = groupName.Substring("__ToggleGroup_".Length);
+                    DrawToggleGroup(toggleName);
+                }
+                else
+                {
+                    DrawTopGroup(groupName);
+                }
             }
 
             // ── Dictionary 保存到序列化备份 ──
@@ -198,6 +204,9 @@ namespace Nodin.Editor
 
         private void DrawTopGroup(string groupName)
         {
+            // 同名 ToggleGroup 已包含子分组，跳过避免重复
+            if (_toggleGroupStates.ContainsKey(groupName)) return;
+
             if (!_foldoutStates.ContainsKey(groupName))
             {
                 var firstField = Array.Find(_fieldMetas, fm => fm.TopGroupName == groupName);
@@ -377,6 +386,15 @@ namespace Nodin.Editor
                     DrawField(fm);
                 }
 
+                // ── 同名 FoldoutGroup 的子分组（如 贴图导入规则/公共参数）──
+                if (_subGroupMap.TryGetValue(groupName, out var subGroups))
+                {
+                    foreach (var sub in subGroups)
+                    {
+                        DrawSubGroup(sub, groupName);
+                    }
+                }
+
                 EditorGUILayout.Space(2);
                 EditorGUILayout.EndVertical();
             }
@@ -454,6 +472,13 @@ namespace Nodin.Editor
                 var fm = _fieldMetas[i];
                 if (fm.FoldoutGroup == null) continue;
                 if (fm.FoldoutGroup.GroupName != groupName) continue;
+                // ── ToggleGroup 联动：当父分组名匹配某个 ToggleGroup 且其开关关闭时，跳过绘制 ──
+                if (fm.ToggleGroup == null)
+                {
+                    var topName = fm.TopGroupName;
+                    if (topName != null && _toggleGroupStates.TryGetValue(topName, out var toggled) && !toggled)
+                        continue;
+                }
                 if (fm.HorizontalGroup != null)
                 {
                     DrawHorizontalGroupFields(i, fm.HorizontalGroup.GroupName, groupName, drawn);
@@ -1435,6 +1460,20 @@ namespace Nodin.Editor
                     fm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
                 }
 
+                // ── BoxGroup 后备：当没有 FoldoutGroup 时，用 BoxGroup 做分组 ──
+                if (fm.TopGroupName == null)
+                {
+                    var boxGroup = field.GetCustomAttribute<BoxGroupAttribute>();
+                    if (boxGroup != null)
+                    {
+                        var name = boxGroup.GroupName;
+                        var slash = name.IndexOf('/');
+                        fm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
+                        // 将 BoxGroup 转为 FoldoutGroup 以便复用分组绘制逻辑
+                        fm.FoldoutGroup = new FoldoutGroupAttribute(boxGroup.GroupName);
+                    }
+                }
+
                 fm.ToggleGroup = field.GetCustomAttribute<ToggleGroupAttribute>();
                 if (fm.ToggleGroup != null && fm.TopGroupName == null)
                 {
@@ -1500,6 +1539,18 @@ namespace Nodin.Editor
                     var name = mm.FoldoutGroup.GroupName;
                     var slash = name.IndexOf('/');
                     mm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
+                }
+                // ── BoxGroup 后备：当没有 FoldoutGroup 时，用 BoxGroup 做分组 ──
+                if (mm.TopGroupName == null)
+                {
+                    var boxGroup = method.GetCustomAttribute<BoxGroupAttribute>();
+                    if (boxGroup != null)
+                    {
+                        var name = boxGroup.GroupName;
+                        var slash = name.IndexOf('/');
+                        mm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
+                        mm.FoldoutGroup = new FoldoutGroupAttribute(boxGroup.GroupName);
+                    }
                 }
                 mm.LabelText = method.GetCustomAttribute<LabelTextAttribute>();
                 mm.GUIColor = method.GetCustomAttribute<GUIColorAttribute>();

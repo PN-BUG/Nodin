@@ -121,19 +121,16 @@ public class NodinTest : NodinMonoBehaviour
     public int boxField2 = 100;
 
     // ══════════════════════════════════════════════════════════
-    //  7. ToggleGroup — 可切换分组
+    //  7. ToggleGroup — 可切换分组（自动作为顶层分组，无需 FoldoutGroup）
     // ══════════════════════════════════════════════════════════
-    [FoldoutGroup("切换分组")]
     [ToggleGroup("特效开关")]
     [LabelText("启用粒子特效")]
     public bool enableParticles = true;
 
-    [FoldoutGroup("切换分组")]
     [ToggleGroup("特效开关")]
     [LabelText("粒子颜色")]
     public Color particleColor = Color.cyan;
 
-    [FoldoutGroup("切换分组")]
     [ToggleGroup("特效开关")]
     [LabelText("粒子大小")]
     public float particleSize = 1.5f;
