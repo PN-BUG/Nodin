@@ -50,6 +50,7 @@ namespace Nodin.Editor
     /// <summary>
     /// 通用 ScriptableObject 编辑器桩。
     /// 无 Odin 时通过 NodinDrawer 反射自动绘制 Inspector。
+    /// 使用 EditorForChildClasses = true 确保处理所有 ScriptableObject 派生类。
     /// </summary>
     [CustomEditor(typeof(ScriptableObject), true)]
     public class NodinEditor : UnityEditor.Editor

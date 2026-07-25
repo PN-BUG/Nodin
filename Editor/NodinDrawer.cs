@@ -24,6 +24,8 @@ namespace Nodin.Editor
     public class NodinDrawer
     {
         private readonly object _target;
+        /// <summary>当前绘制目标对象，供外部缓存判断目标是否已更换。</summary>
+        public object Target => _target;
         private readonly Type _type;
 
         // ── 缓存的字段/方法元数据（构造时一次性读取所有 Attribute）──
@@ -62,6 +64,9 @@ namespace Nodin.Editor
         // ── 字典折叠状态 ──
         private readonly Dictionary<string, bool> _dictFoldouts = new();
 
+        // ── 内联绘制器缓存（按字段名，避免每帧重建丢失折叠状态）──
+        private readonly Dictionary<string, NodinDrawer> _inlineDrawerCache = new();
+
         // ── Dictionary 字段列表（用于自动序列化）──
         private readonly FieldInfo[] _dictFields;
 
@@ -81,9 +86,16 @@ namespace Nodin.Editor
                 .Where(f => f.GetCustomAttribute<HideInInspector>() == null || f.GetCustomAttribute<ShowInInspectorAttribute>() != null)
                 .ToArray();
 
-            _fieldMetas = new FieldMeta[fields.Length];
+            // ── 收集标记了 [ShowInInspector] 的属性 ──
+            var showProps = _type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
+                .Where(p => p.GetCustomAttribute<ShowInInspectorAttribute>() != null && p.GetIndexParameters().Length == 0)
+                .ToArray();
+
+            _fieldMetas = new FieldMeta[fields.Length + showProps.Length];
             for (int i = 0; i < fields.Length; i++)
                 _fieldMetas[i] = FieldMeta.Build(fields[i]);
+            for (int i = 0; i < showProps.Length; i++)
+                _fieldMetas[fields.Length + i] = FieldMeta.BuildFromProperty(showProps[i]);
 
             // ── 收集方法并缓存所有 Attribute ──
             var methods = _type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
@@ -97,6 +109,9 @@ namespace Nodin.Editor
             // ── 预计算分组排序 ──
             _orderedTopGroups = new List<string>();
             var groupOrders = new Dictionary<string, int>();
+            // 记录每个分组首次出现的插入顺序，用于稳定排序的 tiebreaker
+            var groupInsertIndex = new Dictionary<string, int>();
+            int insertCounter = 0;
 
             foreach (var fm in _fieldMetas)
             {
@@ -105,6 +120,7 @@ namespace Nodin.Editor
                 {
                     _orderedTopGroups.Add(topName);
                     groupOrders[topName] = fm.FoldoutGroup?.Order ?? 0;
+                    groupInsertIndex[topName] = insertCounter++;
                 }
             }
 
@@ -116,10 +132,16 @@ namespace Nodin.Editor
                 {
                     _orderedTopGroups.Add(topName);
                     groupOrders[topName] = mm.FoldoutGroup.Order;
+                    groupInsertIndex[topName] = insertCounter++;
                 }
             }
 
-            _orderedTopGroups.Sort((a, b) => groupOrders[a].CompareTo(groupOrders[b]));
+            // 使用插入顺序作为 tiebreaker，保证 Order 相同时保持代码声明顺序
+            _orderedTopGroups.Sort((a, b) =>
+            {
+                int cmp = groupOrders[a].CompareTo(groupOrders[b]);
+                return cmp != 0 ? cmp : groupInsertIndex[a].CompareTo(groupInsertIndex[b]);
+            });
 
             // ── 收集 Dictionary 字段用于自动序列化 ──
             _dictFields = DictSerializationHelper.CollectDictFields(_type);
@@ -178,9 +200,19 @@ namespace Nodin.Editor
                 EditorGUILayout.ObjectField("Script", monoScript, typeof(MonoScript), false);
                 EditorGUI.EndDisabledGroup();
             }
+            else if (_type.GetCustomAttribute<SerializableAttribute>() != null)
+            {
+                // [Serializable] 普通类：通过 AssetDatabase 查找对应脚本并绘制
+                var monoScript = FindMonoScriptForType(_type);
+                if (monoScript != null)
+                {
+                    EditorGUI.BeginDisabledGroup(true);
+                    EditorGUILayout.ObjectField("Script", monoScript, typeof(MonoScript), false);
+                    EditorGUI.EndDisabledGroup();
+                }
+            }
 
             DrawUngroupedFields();
-            DrawUngroupedButtons();
 
             foreach (var groupName in _orderedTopGroups)
             {
@@ -195,6 +227,9 @@ namespace Nodin.Editor
                     DrawTopGroup(groupName);
                 }
             }
+
+            // 无分组按钮绘制在所有分组之后，避免按钮出现在数据上方
+            DrawUngroupedButtons();
 
             // ── Dictionary 保存到序列化备份 ──
             DictSerializationHelper.SaveAll(_target, _dictFields);
@@ -294,11 +329,11 @@ namespace Nodin.Editor
         {
             // 找到 bool 字段（toggle 开关）
             var toggleField = Array.Find(_fieldMetas, fm =>
-                fm.ToggleGroup?.GroupName == groupName && fm.Field.FieldType == typeof(bool));
+                fm.ToggleGroup?.GroupName == groupName && fm.FieldType == typeof(bool));
 
             // 初始化状态
             if (!_toggleGroupStates.ContainsKey(groupName) && toggleField != null)
-                _toggleGroupStates[groupName] = (bool)toggleField.Field.GetValue(_target);
+                _toggleGroupStates[groupName] = (bool)toggleField.GetValue(_target);
             if (!_toggleGroupExpanded.ContainsKey(groupName))
                 _toggleGroupExpanded[groupName] = true;
 
@@ -381,7 +416,7 @@ namespace Nodin.Editor
                 foreach (var fm in _fieldMetas)
                 {
                     if (fm.ToggleGroup?.GroupName != groupName) continue;
-                    if (fm.Field.FieldType == typeof(bool)) continue; // 跳过 toggle 字段本身
+                    if (fm.FieldType == typeof(bool)) continue; // 跳过 toggle 字段本身
                     if (!ShouldShow(fm)) continue;
                     DrawField(fm);
                 }
@@ -595,7 +630,7 @@ namespace Nodin.Editor
             // DisplayAsString — 以只读字符串显示
             if (fm.DisplayAsString != null)
             {
-                var displayValue = fm.Field.GetValue(_target);
+                var displayValue = fm.GetValue(_target);
                 var strValue = displayValue?.ToString() ?? "null";
                 _cachedLabel.text = label;
                 _cachedLabel.tooltip = fm.PropertyTooltip?.Tooltip ?? "";
@@ -615,13 +650,13 @@ namespace Nodin.Editor
 
             EditorGUI.BeginChangeCheck();
 
-            var fieldType = fm.Field.FieldType;
-            var value = fm.Field.GetValue(_target);
+            var fieldType = fm.FieldType;
+            var value = fm.GetValue(_target);
             object newValue = DrawFieldByType(label, value, fieldType, fm);
 
             if (EditorGUI.EndChangeCheck())
             {
-                RecordUndo($"Nodin: 修改 {fm.Field.Name}");
+                RecordUndo($"Nodin: 修改 {fm.FieldName}");
 
                 // MinValue 约束
                 if (fm.MinValue != null)
@@ -638,7 +673,7 @@ namespace Nodin.Editor
                 //     newValue = ClampMax(newValue, fm.Range.Max);
                 // }
 
-                fm.Field.SetValue(_target, newValue);
+                fm.SetValue(_target, newValue);
                 InvokeOnValueChanged(fm);
 
                 // 可序列化容器（如 SerializableDictionary）编辑后需同步内部列表
@@ -646,8 +681,8 @@ namespace Nodin.Editor
                     cb.OnBeforeSerialize();
 
                 // Dictionary 字段：立即同步到序列化备份
-                if (fm.Field.FieldType.IsGenericType
-                    && fm.Field.FieldType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+                if (fm.HasSerializableField && fm.FieldType.IsGenericType
+                    && fm.FieldType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
                 {
                     DictSerializationHelper.SaveField(_target, fm.Field);
                 }
@@ -763,6 +798,54 @@ namespace Nodin.Editor
             }
         }
 
+        // ── MonoScript 查找缓存（按类型，避免每帧重复搜索）──
+        private static readonly Dictionary<Type, MonoScript> _monoScriptCache = new();
+
+        /// <summary>
+        /// 根据类型查找对应的 MonoScript 资源。
+        /// 先按类名快速缩小范围搜索，未命中再全量兜底。结果缓存，每种类型只搜索一次。
+        /// </summary>
+        private static MonoScript FindMonoScriptForType(Type type)
+        {
+            if (type == null) return null;
+
+            if (_monoScriptCache.TryGetValue(type, out var cached))
+                return cached;
+
+            MonoScript result = null;
+
+            // 快速路径：按类名搜索，缩小范围
+            var guids = AssetDatabase.FindAssets($"{type.Name} t:Script");
+            foreach (var guid in guids)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!path.EndsWith(".cs")) continue;
+                var script = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
+                if (script == null) continue;
+                if (script.GetClass() == type) { result = script; break; }
+                if (script.text.Contains($"class {type.Name}")) { result = script; break; }
+            }
+
+            // 兜底：全量扫描（处理文件名与类名完全不同的情况）
+            if (result == null)
+            {
+                var classDecl = $"class {type.Name}";
+                var allGuids = AssetDatabase.FindAssets("t:Script");
+                foreach (var guid in allGuids)
+                {
+                    var path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (!path.EndsWith(".cs")) continue;
+                    var script = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
+                    if (script == null) continue;
+                    if (script.GetClass() == type) { result = script; break; }
+                    if (script.text.Contains(classDecl)) { result = script; break; }
+                }
+            }
+
+            _monoScriptCache[type] = result;
+            return result;
+        }
+
         private void DrawInfoBox(FieldMeta fm)
         {
             if (fm.InfoBoxes == null) return;
@@ -829,6 +912,9 @@ namespace Nodin.Editor
                     _cachedLabel.text = label;
                     _cachedLabel.tooltip = fm.PropertyTooltip?.Tooltip ?? "";
                     idx = EditorGUILayout.Popup(hideLabel ? GUIContent.none : _cachedLabel, idx, options);
+                    // 枚举类型使用 Enum.Parse 转换，避免 Convert.ChangeType 无法从 string 转枚举的问题。
+                    if (type.IsEnum)
+                        return Enum.Parse(type, options[idx]);
                     return Convert.ChangeType(options[idx], type);
                 }
             }
@@ -855,7 +941,7 @@ namespace Nodin.Editor
             // List<T>
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
             {
-                var listSettings = fm.Field?.GetCustomAttribute<ListDrawerSettingsAttribute>();
+                var listSettings = fm.GetAttr<ListDrawerSettingsAttribute>();
                 DrawListField(label, value, type, hideLabel, listSettings);
                 return value;
             }
@@ -863,22 +949,38 @@ namespace Nodin.Editor
             // Dictionary<TKey, TValue>
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
             {
-                var settingsAttr = fm.Field?.GetCustomAttribute<DictionaryDrawerSettingsAttribute>();
+                var settingsAttr = fm.GetAttr<DictionaryDrawerSettingsAttribute>();
                 DrawDictField(label, value, type, hideLabel, settingsAttr);
                 return value;
             }
 
-            // 可序列化类/结构体 — [InlineProperty] 内联绘制
-            if (value != null && type.GetCustomAttribute<InlinePropertyAttribute>() != null)
+            // 可序列化类/结构体 — [InlineProperty] 或 [Serializable] 内联绘制
+            if (value != null && (type.GetCustomAttribute<InlinePropertyAttribute>() != null
+                || type.GetCustomAttribute<SerializableAttribute>() != null))
             {
-                if (!hideLabel)
+                // 折叠头部
+                string foldKey = $"__inline_{fm.FieldName}_{type.FullName}";
+                if (!_foldoutStates.ContainsKey(foldKey))
+                    _foldoutStates[foldKey] = true;
+                DrawGroupHeader(label, _foldoutStates[foldKey], isSubGroup: false, out var inlineToggled);
+                if (inlineToggled) _foldoutStates[foldKey] = !_foldoutStates[foldKey];
+
+                if (_foldoutStates[foldKey])
                 {
-                    EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
-                    EditorGUI.indentLevel++;
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    EditorGUILayout.Space(2);
+                    // 缓存内联绘制器，避免每帧重建丢失折叠等临时状态
+                    var fieldKey = fm.FieldName ?? label;
+                    if (!_inlineDrawerCache.TryGetValue(fieldKey, out var inlineDrawer)
+                        || inlineDrawer.Target != value)
+                    {
+                        inlineDrawer = new NodinDrawer(value, _undoTarget);
+                        _inlineDrawerCache[fieldKey] = inlineDrawer;
+                    }
+                    inlineDrawer.Draw();
+                    EditorGUILayout.Space(2);
+                    EditorGUILayout.EndVertical();
                 }
-                var inlineDrawer = new NodinDrawer(value, _undoTarget);
-                inlineDrawer.Draw();
-                if (!hideLabel) EditorGUI.indentLevel--;
                 return value;
             }
 
@@ -894,7 +996,8 @@ namespace Nodin.Editor
             bool alwaysAddDefault = settings?.AlwaysAddDefaultValue == true;
             if (value == null) return;
             var listType = type.GetGenericArguments()[0];
-            bool inlineItems = listType.GetCustomAttribute<InlinePropertyAttribute>() != null;
+            bool inlineItems = listType.GetCustomAttribute<InlinePropertyAttribute>() != null
+                || listType.GetCustomAttribute<SerializableAttribute>() != null;
             var list = (System.Collections.IList)value;
 
             // ── 折叠头部（复用分组标题样式）──
@@ -1419,6 +1522,7 @@ namespace Nodin.Editor
         private class FieldMeta
         {
             public FieldInfo Field;
+            public PropertyInfo Property; // [ShowInInspector] 属性
             public string Label;
             public FoldoutGroupAttribute FoldoutGroup;
             public ToggleGroupAttribute ToggleGroup;
@@ -1444,65 +1548,82 @@ namespace Nodin.Editor
             public RequiredAttribute Required;
             public DisplayAsStringAttribute DisplayAsString;
 
+            // ── 统一访问器（兼容 FieldInfo 和 PropertyInfo）──
+            public Type FieldType => Property != null ? Property.PropertyType : Field.FieldType;
+            public string FieldName => Property != null ? Property.Name : Field.Name;
+            public object GetValue(object target) => Property != null ? Property.GetValue(target) : Field.GetValue(target);
+            public void SetValue(object target, object value) { if (Property != null && Property.CanWrite) Property.SetValue(target, value); else Field?.SetValue(target, value); }
+            public T GetAttr<T>() where T : Attribute => (Property?.GetCustomAttribute<T>() ?? Field?.GetCustomAttribute<T>());
+            public bool HasSerializableField => Field != null; // 只有真正的字段才能被 Unity 序列化
+
             // 缓存的 dropdown 选项
             private string[] _cachedOptions;
             private bool _optionsResolved;
 
-            public static FieldMeta Build(FieldInfo field)
+            private void BuildFromMember(MemberInfo member)
             {
-                var fm = new FieldMeta { Field = field };
-
-                fm.FoldoutGroup = field.GetCustomAttribute<FoldoutGroupAttribute>();
-                if (fm.FoldoutGroup != null)
+                FoldoutGroup = member.GetCustomAttribute<FoldoutGroupAttribute>();
+                if (FoldoutGroup != null)
                 {
-                    var name = fm.FoldoutGroup.GroupName;
+                    var name = FoldoutGroup.GroupName;
                     var slash = name.IndexOf('/');
-                    fm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
+                    TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
                 }
 
                 // ── BoxGroup 后备：当没有 FoldoutGroup 时，用 BoxGroup 做分组 ──
-                if (fm.TopGroupName == null)
+                if (TopGroupName == null)
                 {
-                    var boxGroup = field.GetCustomAttribute<BoxGroupAttribute>();
+                    var boxGroup = member.GetCustomAttribute<BoxGroupAttribute>();
                     if (boxGroup != null)
                     {
                         var name = boxGroup.GroupName;
                         var slash = name.IndexOf('/');
-                        fm.TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
-                        // 将 BoxGroup 转为 FoldoutGroup 以便复用分组绘制逻辑
-                        fm.FoldoutGroup = new FoldoutGroupAttribute(boxGroup.GroupName);
+                        TopGroupName = slash >= 0 ? name.Substring(0, slash) : name;
+                        FoldoutGroup = new FoldoutGroupAttribute(boxGroup.GroupName);
                     }
                 }
 
-                fm.ToggleGroup = field.GetCustomAttribute<ToggleGroupAttribute>();
-                if (fm.ToggleGroup != null && fm.TopGroupName == null)
+                ToggleGroup = member.GetCustomAttribute<ToggleGroupAttribute>();
+                if (ToggleGroup != null && TopGroupName == null)
                 {
-                    fm.TopGroupName = "__ToggleGroup_" + fm.ToggleGroup.GroupName;
+                    TopGroupName = "__ToggleGroup_" + ToggleGroup.GroupName;
                 }
 
-                fm.LabelText = field.GetCustomAttribute<LabelTextAttribute>();
-                fm.HideLabel = field.GetCustomAttribute<HideLabelAttribute>();
-                fm.Label = fm.LabelText != null ? fm.LabelText.Text : ObjectNames.NicifyVariableName(field.Name);
+                LabelText = member.GetCustomAttribute<LabelTextAttribute>();
+                HideLabel = member.GetCustomAttribute<HideLabelAttribute>();
+                Label = LabelText != null ? LabelText.Text : ObjectNames.NicifyVariableName(member.Name);
 
-                fm.ShowIf = field.GetCustomAttribute<ShowIfAttribute>();
-                fm.HideIf = field.GetCustomAttribute<HideIfAttribute>();
-                fm.EnableIf = field.GetCustomAttribute<EnableIfAttribute>();
-                fm.DisableIf = field.GetCustomAttribute<DisableIfAttribute>();
-                fm.ReadOnly = field.GetCustomAttribute<ReadOnlyAttribute>();
-                fm.FolderPath = field.GetCustomAttribute<FolderPathAttribute>();
-                fm.MultiLine = field.GetCustomAttribute<MultiLinePropertyAttribute>();
-                fm.ValueDropdown = field.GetCustomAttribute<ValueDropdownAttribute>();
-                fm.InfoBoxes = field.GetCustomAttributes<InfoBoxAttribute>().ToArray();
-                fm.OnValueChanged = field.GetCustomAttribute<OnValueChangedAttribute>();
-                fm.MinValue = field.GetCustomAttribute<MinValueAttribute>();
-                fm.MaxValue = field.GetCustomAttribute<MaxValueAttribute>();
-                fm.Range = field.GetCustomAttribute<RangeAttribute>();
-                fm.PropertyTooltip = field.GetCustomAttribute<PropertyTooltipAttribute>();
-                fm.HorizontalGroup = field.GetCustomAttribute<HorizontalGroupAttribute>();
-                fm.Title = field.GetCustomAttribute<TitleAttribute>();
-                fm.Required = field.GetCustomAttribute<RequiredAttribute>();
-                fm.DisplayAsString = field.GetCustomAttribute<DisplayAsStringAttribute>();
+                ShowIf = member.GetCustomAttribute<ShowIfAttribute>();
+                HideIf = member.GetCustomAttribute<HideIfAttribute>();
+                EnableIf = member.GetCustomAttribute<EnableIfAttribute>();
+                DisableIf = member.GetCustomAttribute<DisableIfAttribute>();
+                ReadOnly = member.GetCustomAttribute<ReadOnlyAttribute>();
+                FolderPath = member.GetCustomAttribute<FolderPathAttribute>();
+                MultiLine = member.GetCustomAttribute<MultiLinePropertyAttribute>();
+                ValueDropdown = member.GetCustomAttribute<ValueDropdownAttribute>();
+                InfoBoxes = member.GetCustomAttributes<InfoBoxAttribute>().ToArray();
+                OnValueChanged = member.GetCustomAttribute<OnValueChangedAttribute>();
+                MinValue = member.GetCustomAttribute<MinValueAttribute>();
+                MaxValue = member.GetCustomAttribute<MaxValueAttribute>();
+                Range = member.GetCustomAttribute<RangeAttribute>();
+                PropertyTooltip = member.GetCustomAttribute<PropertyTooltipAttribute>();
+                HorizontalGroup = member.GetCustomAttribute<HorizontalGroupAttribute>();
+                Title = member.GetCustomAttribute<TitleAttribute>();
+                Required = member.GetCustomAttribute<RequiredAttribute>();
+                DisplayAsString = member.GetCustomAttribute<DisplayAsStringAttribute>();
+            }
 
+            public static FieldMeta Build(FieldInfo field)
+            {
+                var fm = new FieldMeta { Field = field };
+                fm.BuildFromMember(field);
+                return fm;
+            }
+
+            public static FieldMeta BuildFromProperty(PropertyInfo property)
+            {
+                var fm = new FieldMeta { Property = property };
+                fm.BuildFromMember(property);
                 return fm;
             }
 
