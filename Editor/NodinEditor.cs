@@ -49,22 +49,109 @@ namespace Nodin.Editor
 
     /// <summary>
     /// 通用 ScriptableObject 编辑器桩。
-    /// 无 Odin 时通过 NodinDrawer 反射自动绘制 Inspector。
-    /// 使用 EditorForChildClasses = true 确保处理所有 ScriptableObject 派生类。
+    /// editorForChildClasses = true 确保覆盖所有 ScriptableObject 派生类（包括被 Odin 抢占的）。
+    /// 检测 Nodin 属性后决定是否接管绘制，否则回退到默认绘制。
     /// </summary>
     [CustomEditor(typeof(ScriptableObject), true)]
+    [CanEditMultipleObjects]
+    [InitializeOnLoad]
     public class NodinEditor : UnityEditor.Editor
     {
         private NodinDrawer _drawer;
+        private bool _hasNodinAttributes;
+
+        // ── 按类型缓存检测结果，避免每次 OnEnable 重复反射 ──
+        private static readonly Dictionary<System.Type, bool> _attrCache = new();
+
+        // ── Odin 共存：通过 finishedDefaultHeaderGUI 钩子补充 Nodin 绘制 ──
+        private static bool _finishedHeaderHooked;
+        // 记录哪些编辑器已经被 Nodin 接管，避免重复绘制
+        private static readonly HashSet<int> _handledInstanceIds = new();
+
+        static NodinEditor()
+        {
+            if (!_finishedHeaderHooked)
+            {
+                _finishedHeaderHooked = true;
+                UnityEditor.Editor.finishedDefaultHeaderGUI += OnFinishedHeaderGUI;
+            }
+        }
+
+        private static void OnFinishedHeaderGUI(UnityEditor.Editor editor)
+        {
+            if (editor == null || editor.target == null) return;
+            // 仅处理 ScriptableObject
+            if (!(editor.target is ScriptableObject)) return;
+            // 如果当前编辑器就是 Nodin 自己的，则跳过（避免重复绘制）
+            if (editor.GetType().Namespace == "Nodin.Editor") return;
+
+            var type = editor.target.GetType();
+
+            // 检查是否有 Nodin 属性
+            if (!HasNodinAttributes(type)) return;
+
+            // 为每个 target 绘制 Nodin 内容
+            foreach (var t in editor.targets)
+            {
+                if (t == null) continue;
+                var drawer = new NodinDrawer(t, t as Object);
+                drawer.Draw();
+            }
+        }
 
         private void OnEnable()
         {
-            _drawer = new NodinDrawer(target, target);
+            var type = target.GetType();
+            if (!_attrCache.TryGetValue(type, out _hasNodinAttributes))
+            {
+                _hasNodinAttributes = HasNodinAttributes(type);
+                _attrCache[type] = _hasNodinAttributes;
+            }
+
+            if (_hasNodinAttributes)
+                _drawer = new NodinDrawer(target, target);
         }
 
         public override void OnInspectorGUI()
         {
-            _drawer?.Draw();
+            if (_hasNodinAttributes && _drawer != null)
+                _drawer.Draw();
+            else
+                DrawDefaultInspector();
+        }
+
+        private static bool HasNodinAttributes(System.Type type)
+        {
+            var fields = type.GetFields(BindingFlags.Public
+                | BindingFlags.Instance
+                | BindingFlags.NonPublic);
+
+            foreach (var f in fields)
+            {
+                if (f.GetCustomAttribute<LabelTextAttribute>() != null
+                    || f.GetCustomAttribute<FoldoutGroupAttribute>() != null
+                    || f.GetCustomAttribute<BoxGroupAttribute>() != null
+                    || f.GetCustomAttribute<ToggleGroupAttribute>() != null
+                    || f.GetCustomAttribute<ShowIfAttribute>() != null
+                    || f.GetCustomAttribute<HideIfAttribute>() != null
+                    || f.GetCustomAttribute<ReadOnlyAttribute>() != null
+                    || f.GetCustomAttribute<ShowInInspectorAttribute>() != null
+                    || f.GetCustomAttribute<InfoBoxAttribute>() != null
+                    || f.GetCustomAttribute<ValueDropdownAttribute>() != null
+                    || f.GetCustomAttribute<ListDrawerSettingsAttribute>() != null
+                    || f.GetCustomAttribute<EnumToggleButtonsAttribute>() != null)
+                    return true;
+            }
+
+            // 检查是否有 Button 方法
+            var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            foreach (var m in methods)
+            {
+                if (m.GetCustomAttribute<ButtonAttribute>() != null)
+                    return true;
+            }
+
+            return false;
         }
     }
 

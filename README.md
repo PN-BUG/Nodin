@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- **版本**: 1.5.0
+- **版本**: 1.6.0
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -47,6 +47,8 @@
 - **`[MinValue]`** - 设置数值字段的最小值约束
 - **`[ListDrawerSettings]`** - List 字段的绘制设置
 - **`[DictionaryDrawerSettings]`** - Dictionary 字段的绘制设置（自定义 Key/Value 列标签）
+- **`[Serializable]` 自动内联绘制** - 标记了 `[Serializable]` 的类作为字段时自动内联绘制，带折叠头部和脚本定位
+- **`[ShowInInspector]` 属性支持** - 标记了 `[ShowInInspector]` 的属性（含表达式体属性）自动被收集绘制
 
 ## 基类
 
@@ -548,6 +550,15 @@ public Dictionary<string, int> data;
 ```
 
 ## 更新日志
+
+### v1.6.0 (2026-07-25)
+- **`[Serializable]` 自动内联绘制**: 标记了 `[Serializable]` 的类作为字段时自动内联绘制，带折叠头部 + helpBox 容器，无需额外添加 `[InlineProperty]`
+- **`[ShowInInspector]` 属性支持**: 除字段外，标记了 `[ShowInInspector]` 的属性（如表达式体属性）也会被收集并绘制，支持 `[BoxGroup]`/`[LabelText]`/`[ReadOnly]` 等特性
+- **`ValueDropdown` 枚举修复**: 枚举类型使用 `Enum.Parse` 替代 `Convert.ChangeType`，修复 `InvalidCastException`
+- **内联绘制器缓存**: 内联 `[Serializable]` 对象的绘制器按字段名缓存，避免每帧重建丢失折叠状态
+- **分组稳定排序**: 分组排序使用插入顺序作为 tiebreaker，保证 `Order` 相同时保持代码声明顺序
+- **无分组按钮后置**: 未指定分组的 `[Button]` 方法绘制在所有分组之后，不再出现在数据上方
+- **`[Serializable]` 脚本定位**: 内联绘制的 `[Serializable]` 类自动查找并显示对应的 MonoScript 引用，点击可在 Project 窗口中定位脚本文件
 
 ### v1.5.0 (2026-07-24)
 - **BoxGroup 分组修复**: `[BoxGroup]` 现在正确作为分组绘制（此前仅检测但未参与分组渲染），当字段没有 `[FoldoutGroup]` 时自动作为后备分组
