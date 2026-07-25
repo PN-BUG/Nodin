@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════
+﻿// ═══════════════════════════════════════════════════════════════
 //  Nodin — 反射式自动绘制器
 //  读取 [FoldoutGroup]、[ShowIf]、[Button]、[LabelText] 等属性，
 //  在 OnGUI 中自动绘制所有 public 字段和标记了 [Button] 的方法。
@@ -1521,6 +1521,14 @@ namespace Nodin.Editor
             if (fm.OnValueChanged == null) return;
             var method = _type.GetMethod(fm.OnValueChanged.MethodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             method?.Invoke(_target, null);
+
+            // OnValueChanged 后清除所有 ValueDropdown 选项缓存，确保嵌套 [Serializable] 类中
+            // 依赖字段的下拉列表能正确刷新。
+            foreach (var meta in _fieldMetas)
+            {
+                if (meta.ValueDropdown != null)
+                    meta.InvalidateDropdownCache();
+            }
         }
 
         // ── 字段元数据缓存 ──────────────────────────────────
@@ -1635,10 +1643,15 @@ namespace Nodin.Editor
 
             public string[] GetDropdownOptions(NodinDrawer drawer)
             {
-                if (_optionsResolved) return _cachedOptions;
-                _optionsResolved = true;
+                // 不缓存，每次绘制时重新调用方法获取最新选项。
+                // 这确保嵌套 [Serializable] 类中 ValueDropdown 依赖其他字段时能正确刷新。
                 _cachedOptions = drawer.InvokeValueDropdownMember(ValueDropdown.MemberName);
                 return _cachedOptions;
+            }
+
+            public void InvalidateDropdownCache()
+            {
+                _cachedOptions = null;
             }
         }
 
