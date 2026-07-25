@@ -57,10 +57,14 @@ MonoBehaviour:
   - '{}'
   - '{}'
   _dictValueIsObject: 0000
+  useNodinDrawing: 1
   labeledField: "\u8FD9\u4E2A\u5B57\u6BB5\u7528\u4E86 [LabelText]"
   hiddenLabelField: "\u8FD9\u4E2A\u5B57\u6BB5\u9690\u85CF\u4E86\u6807\u7B7E"
   labeledInt: 42
   labeledFloat: 3.14
+  titleHP: 100
+  titleCritRate: 0.15
+  displayAsString: "\u8FD9\u6BB5\u6587\u672C\u4EE5\u53EA\u8BFB\u5B57\u7B26\u4E32\u5F62\u5F0F\u663E\u793A"
   infoField: 
   warningField: 
   errorField: 
@@ -73,6 +77,12 @@ MonoBehaviour:
   subField2: "\u7236\u5206\u7EC4\u4E0B\u7684\u5B50\u5206\u7EC42"
   boxField1: "\u5728\u76D2\u5B50\u5206\u7EC4\u4E2D"
   boxField2: 100
+  enableParticles: 1
+  particleColor: {r: 0, g: 1, b: 1, a: 1}
+  particleSize: 1.5
+  hStr: 10
+  hAgi: 8
+  hInt: 12
   showSecret: 0
   secretContent: "\u53EA\u6709\u52FE\u9009\u300C\u663E\u793A\u79D8\u5BC6\u300D\u624D\u80FD\u770B\u5230\u6211"
   hideTestField: "\u5F53\u300C\u663E\u793A\u79D8\u5BC6\u300D\u52FE\u9009\u65F6\u6211\u4F1A\u9690\u85CF"
@@ -84,8 +94,20 @@ MonoBehaviour:
   disabledField: "\u9501\u5B9A\u540E\u53D8\u7070\u4E0D\u53EF\u7F16\u8F91"
   readOnlyText: "\u8FD9\u4E2A\u5B57\u6BB5\u4E0D\u53EF\u7F16\u8F91"
   readOnlyNumber: 999
+  minHP: 100
+  minLevel: 1
+  minMultiplier: 1
+  maxHP: 100
+  maxLevel: 1
+  speedFactor: 1
+  progress: 50
+  port: 80
+  requiredName: 
+  requiredAvatar: {fileID: 0}
   multiLineText: "\u8FD9\u662F\u7B2C\u4E00\u884C\n\u8FD9\u662F\u7B2C\u4E8C\u884C\n\u8FD9\u662F\u7B2C\u4E09\u884C\n\u8FD9\u662F\u7B2C\u56DB\u884C\n\u8FD9\u662F\u7B2C\u4E94\u884C"
   shortMultiLine: "\u7B80\u77ED\u7684\n\u591A\u884C\u6587\u672C"
+  tooltipFloat: 1
+  tooltipWithConstraints: 50
   greenField: "\u8FD9\u4E2A\u5B57\u6BB5\u662F\u7EFF\u8272\u7684"
   orangeField: "\u8FD9\u4E2A\u5B57\u6BB5\u662F\u6A59\u8272\u7684\uFF08Hex \u989C\u8272\uFF09"
   purpleField: 777
@@ -108,3 +130,4 @@ MonoBehaviour:
   assetsOnlyField: {fileID: 0}
   mixedField: "\u591A\u6807\u7B7E\u6DF7\u5408\u4F7F\u7528"
   conditionalColoredField: "\u6761\u4EF6\u663E\u793A + \u91D1\u8272"
+  mixedAttack: 25

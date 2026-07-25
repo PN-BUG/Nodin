@@ -1,7 +1,7 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using UnityEngine;
-using Nodin; 
+using Nodin;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -18,6 +18,24 @@ public enum WeaponType { Sword, Axe, Bow, Staff }
 /// </summary>
 public class NodinTest : NodinMonoBehaviour
 {
+    // ══════════════════════════════════════════════════════════
+    //  0. Nodin / Odin 绘制切换
+    // ══════════════════════════════════════════════════════════ 
+    [LabelText("使用 Nodin 绘制")]
+    [PropertyTooltip("关闭后由 Odin Inspector 接管绘制（仅影响此实例，需项目中已安装 Odin）")]
+    [OnValueChanged(nameof(OnDrawingModeChanged))]
+    public bool useNodinDrawing = true;
+
+#if UNITY_EDITOR
+    private void OnDrawingModeChanged()
+    {
+        // 编辑器内部按实例读取 useNodinDrawing 决定绘制方式，无需全局操作
+        // 仅触发 Inspector 重绘
+        UnityEditor.EditorUtility.SetDirty(this);
+        Debug.Log($"[NodinTest] 绘制模式切换为: {(useNodinDrawing ? "Nodin" : "Odin")}");
+    }
+#endif
+
     // ══════════════════════════════════════════════════════════
     //  1. LabelText — 自定义标签文本
     // ══════════════════════════════════════════════════════════

@@ -63,42 +63,97 @@ namespace Nodin.Editor
         // ── 按类型缓存检测结果，避免每次 OnEnable 重复反射 ──
         private static readonly Dictionary<System.Type, bool> _attrCache = new();
 
-        // ── Odin 共存：通过 finishedDefaultHeaderGUI 钩子补充 Nodin 绘制 ──
-        private static bool _finishedHeaderHooked;
-        // 标记当前帧已被 Nodin 接管（OnFinishedHeaderGUI 中设置，OnInspectorGUI 中消费）
-        private static bool _nodinTakenOver;
+        // ── Odin 共存：反射缓存 ──
+        private static bool _registered;
+        private static System.Type _ccaType;
+        private static System.Type _monoEditorTypeType;
+        private static System.Reflection.FieldInfo _kSEditorsField;
+        private static System.Reflection.FieldInfo _sSearchCacheField;
+        private static System.Reflection.MethodInfo _rebuildMethod;
 
         static NodinEditor()
         {
-            if (!_finishedHeaderHooked)
-            {
-                _finishedHeaderHooked = true;
-                UnityEditor.Editor.finishedDefaultHeaderGUI += OnFinishedHeaderGUI;
-            }
+            // Odin 会在 [InitializeOnLoadMethod] 阶段为每个 ScriptableObject 子类型注册 OdinEditor。
+            // 我们使用 EditorApplication.delayCall 确保在 Odin 之后注册，覆盖其条目。
+            EditorApplication.delayCall += RegisterNodinForNodinAttributedTypes;
         }
 
-        private static void OnFinishedHeaderGUI(UnityEditor.Editor editor)
+        /// <summary>
+        /// 扫描所有 ScriptableObject 子类型，为含 Nodin 属性的类型在
+        /// CustomEditorAttributes.kSCustomEditors 中注册 NodinEditor，
+        /// 覆盖 Odin 动态注册的 OdinEditor 条目。
+        /// </summary>
+        private static void RegisterNodinForNodinAttributedTypes()
         {
-            if (editor == null || editor.target == null) return;
-            // 仅处理 ScriptableObject
-            if (!(editor.target is ScriptableObject)) return;
-            // 如果当前编辑器是 NodinEditor 或其子类，则跳过（避免重复绘制）
-            if (editor is NodinEditor) return;
+            if (_registered) return;
+            _registered = true;
 
-            var type = editor.target.GetType();
+            // 没有 Odin 时，Nodin 的 [CustomEditor] 注册自然胜出，无需扫描覆盖
+            if (!NodinCompat.HasOdin()) return;
 
-            // 检查是否有 Nodin 属性
-            if (!HasNodinAttributes(type)) return;
-
-            // Nodin 接管：绘制完整 Inspector 并标记，让后续 OnInspectorGUI 跳过
-            _nodinTakenOver = false;
-            foreach (var t in editor.targets)
+            try
             {
-                if (t == null) continue;
-                var drawer = new NodinDrawer(t, t as Object);
-                drawer.Draw();
+                _ccaType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.CustomEditorAttributes");
+                if (_ccaType == null) return;
+
+                _monoEditorTypeType = _ccaType.GetNestedType("MonoEditorType", BindingFlags.NonPublic | BindingFlags.Public);
+                _kSEditorsField = _ccaType.GetField("kSCustomEditors", BindingFlags.Static | BindingFlags.NonPublic);
+                _sSearchCacheField = _ccaType.GetField("s_SearchCache", BindingFlags.Static | BindingFlags.NonPublic);
+                _rebuildMethod = _ccaType.GetMethod("Rebuild", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+
+                if (_kSEditorsField == null || _monoEditorTypeType == null) return;
+
+                var dict = _kSEditorsField.GetValue(null) as System.Collections.IDictionary;
+                if (dict == null) return;
+
+                var nodinEditorType = typeof(NodinEditor);
+                int registeredCount = 0;
+
+                foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    System.Type[] types;
+                    try { types = assembly.GetTypes(); } catch { continue; }
+
+                    foreach (var type in types)
+                    {
+                        if (!typeof(ScriptableObject).IsAssignableFrom(type)) continue;
+                        if (type.IsAbstract) continue;
+                        if (!HasNodinAttributes(type)) continue;
+
+                        // 创建 MonoEditorType 条目
+                        var entry = System.Activator.CreateInstance(_monoEditorTypeType);
+                        _monoEditorTypeType.GetField("m_InspectedType").SetValue(entry, type);
+                        _monoEditorTypeType.GetField("m_InspectorType").SetValue(entry, nodinEditorType);
+                        _monoEditorTypeType.GetField("m_EditorForChildClasses").SetValue(entry, false);
+                        _monoEditorTypeType.GetField("m_IsFallback").SetValue(entry, false);
+                        _monoEditorTypeType.GetField("m_RenderPipelineType").SetValue(entry, null);
+
+                        // 替换 kSCustomEditors 中的条目列表
+                        var listType = typeof(List<>).MakeGenericType(_monoEditorTypeType);
+                        var list = (System.Collections.IList)System.Activator.CreateInstance(listType);
+                        list.Add(entry);
+                        dict[type] = list;
+                        registeredCount++;
+                    }
+                }
+
+                // 清除搜索缓存
+                if (_sSearchCacheField != null)
+                {
+                    var cache = _sSearchCacheField.GetValue(null) as System.Collections.IList;
+                    cache?.Clear();
+                }
+
+                // 重建
+                _rebuildMethod?.Invoke(null, null);
+
+                if (registeredCount > 0)
+                    Debug.Log($"[Nodin] 已为 {registeredCount} 个 ScriptableObject 类型注册 NodinEditor（覆盖 Odin）");
             }
-            _nodinTakenOver = true;
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[Nodin] 注册 NodinEditor 失败（非致命）: {ex.Message}");
+            }
         }
 
         private void OnEnable()
@@ -145,6 +200,18 @@ namespace Nodin.Editor
                     return true;
             }
 
+            // 检查 [ShowInInspector] 属性
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (var p in properties)
+            {
+                if (p.GetIndexParameters().Length > 0) continue;
+                if (p.GetCustomAttribute<ShowInInspectorAttribute>() != null
+                    || p.GetCustomAttribute<LabelTextAttribute>() != null
+                    || p.GetCustomAttribute<BoxGroupAttribute>() != null
+                    || p.GetCustomAttribute<FoldoutGroupAttribute>() != null)
+                    return true;
+            }
+
             // 检查是否有 Button 方法
             var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             foreach (var m in methods)
@@ -157,23 +224,100 @@ namespace Nodin.Editor
         }
     }
 
+    /// <summary>Nodin 兼容性辅助（Odin 共存检测等）</summary>
+    internal static class NodinCompat
+    {
+        private static bool _odinChecked;
+        private static bool _hasOdin;
+        private static System.Type _odinEditorType;
+
+        /// <summary>检测项目中是否存在 Odin Inspector（仅反射一次）</summary>
+        public static bool HasOdin()
+        {
+            if (!_odinChecked)
+            {
+                _odinChecked = true;
+                _odinEditorType = System.Type.GetType("Sirenix.OdinInspector.Editor.OdinEditor, Sirenix.OdinInspector.Editor");
+                _hasOdin = _odinEditorType != null;
+            }
+            return _hasOdin;
+        }
+
+        /// <summary>判断编辑器是否为 OdinEditor 或其子类</summary>
+        public static bool IsOdinEditor(UnityEditor.Editor editor)
+        {
+            if (!HasOdin() || editor == null) return false;
+            return _odinEditorType.IsAssignableFrom(editor.GetType());
+        }
+
+        /// <summary>OdinEditor 类型（未安装 Odin 时为 null）</summary>
+        public static System.Type OdinEditorType => _odinEditorType;
+    }
+
     /// <summary>
     /// NodinMonoBehaviour 编辑器桩。
     /// 继承 NodinMonoBehaviour 的类型自动获得 Nodin 属性绘制支持。
+    /// 如果目标对象有名为 useNodinDrawing 的 bool 字段且值为 false，
+    /// 则按实例委托给 Odin Editor 绘制（不影响其他实例）。
     /// </summary>
     [CustomEditor(typeof(NodinMonoBehaviour), true)]
     public class NodinMonoBehaviourEditor : UnityEditor.Editor
     {
         private NodinDrawer _drawer;
+        private UnityEditor.Editor _odinDelegate;
+        private System.Reflection.FieldInfo _toggleField;
+        private bool _toggleFieldChecked;
 
         private void OnEnable()
         {
             _drawer = new NodinDrawer(target, target);
         }
 
+        private void OnDisable()
+        {
+            if (_odinDelegate != null)
+            {
+                DestroyImmediate(_odinDelegate);
+                _odinDelegate = null;
+            }
+        }
+
         public override void OnInspectorGUI()
         {
+            // 按类型缓存查找 useNodinDrawing 字段
+            if (!_toggleFieldChecked)
+            {
+                _toggleFieldChecked = true;
+                _toggleField = target.GetType().GetField("useNodinDrawing",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            }
+
+            // 有 toggle 字段且值为 false → 委托给 Odin（按实例，不影响全局）
+            if (_toggleField != null
+                && _toggleField.GetValue(target) is bool useNodin
+                && !useNodin)
+            {
+                DrawWithOdinOrNative();
+                return;
+            }
+
             _drawer?.Draw();
+        }
+
+        private void DrawWithOdinOrNative()
+        {
+            if (!NodinCompat.HasOdin())
+            {
+                DrawDefaultInspector();
+                return;
+            }
+
+            // 创建并缓存 OdinEditor 实例（按当前 target，单实例）
+            if (_odinDelegate == null)
+            {
+                _odinDelegate = UnityEditor.Editor.CreateEditor(target, NodinCompat.OdinEditorType);
+            }
+            _odinDelegate?.OnInspectorGUI();
         }
     }
 

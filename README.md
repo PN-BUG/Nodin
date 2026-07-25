@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- **版本**: 1.6.0
+- **版本**: 1.7.0
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -465,6 +465,7 @@ public class DropdownExample : MonoBehaviour
 
 | 分组 | 测试内容 |
 |------|----------|
+| 绘制模式切换 | `useNodinDrawing` toggle — 按实例切换 Nodin/Odin 绘制 |
 | 标签 & 显示 | `[LabelText]`、`[HideLabel]` |
 | 信息提示 | `[InfoBox]` Info/Warning/Error + 条件显示 |
 | 折叠分组 | `[FoldoutGroup]` 展开/折叠 + 子分组 |
@@ -508,6 +509,10 @@ public class DropdownExample : MonoBehaviour
 
 8. **Dictionary 序列化**: 使用 `Dictionary` 字段时必须继承 `NodinMonoBehaviour`，否则数据会在序列化时丢失。普通 `MonoBehaviour` 的 Nodin 属性绘制（`[LabelText]` 等）从 v1.3.0 起自动支持，无需修改继承
 
+9. **Odin Inspector 共存（ScriptableObject）**: 当项目中同时安装了 Sirenix Odin Inspector 时，Odin 会为每个 `ScriptableObject` 子类型动态注册 `OdinEditor`，覆盖 Nodin 的通用注册。Nodin 通过 `EditorApplication.delayCall` 在 Odin 之后扫描所有含 Nodin 属性的 `ScriptableObject` 类型，直接在 `CustomEditorAttributes.kSCustomEditors` 中注册 `NodinEditor` 覆盖 Odin 的条目。此机制为一次性启动操作，无运行时性能开销。未安装 Odin 时跳过扫描（`HasOdin()` 守卫），零开销
+
+10. **Odin Inspector 共存（MonoBehaviour 按实例切换）**: 继承 `NodinMonoBehaviour` 的类型可通过添加 `bool useNodinDrawing` 字段（配合 `[OnValueChanged]`）实现**按实例**切换 Nodin/Odin 绘制。`NodinMonoBehaviourEditor.OnInspectorGUI` 每帧读取该字段值：为 `true` 时使用 `NodinDrawer` 绘制，为 `false` 时委托给缓存的 `OdinEditor` 实例绘制。此机制仅影响当前选中的实例，不修改全局编辑器注册表，不影响其他实例
+
 ## 常见问题
 
 ### Q: 为什么我的字段没有显示？
@@ -542,6 +547,12 @@ private string[] GetOptions() => new[] { "选项1", "选项2", "选项3" };
 ### Q: Dictionary 字段数据丢失怎么办？
 A: 必须继承 `NodinMonoBehaviour` 而非 `MonoBehaviour`。`NodinMonoBehaviour` 实现了 `ISerializationCallbackReceiver`，会在序列化时自动保存 Dictionary 数据。
 
+### Q: 项目中安装了 Odin Inspector，Nodin 特性的 ScriptableObject 不生效？
+A: Nodin v1.7.0+ 已自动处理 Odin 共存。启动时扫描所有含 Nodin 属性的 `ScriptableObject` 类型，在 `CustomEditorAttributes.kSCustomEditors` 中注册 `NodinEditor` 覆盖 Odin 的动态注册。控制台会输出 `[Nodin] 已为 N 个 ScriptableObject 类型注册 NodinEditor（覆盖 Odin）` 确认注册成功。未安装 Odin 时跳过扫描。如未生效，检查控制台是否有 `[Nodin] 注册 NodinEditor 失败` 警告。
+
+### Q: 如何在 Nodin 和 Odin 之间按实例切换绘制？
+A: 在继承 `NodinMonoBehaviour` 的类中添加 `bool useNodinDrawing` 字段（配合 `[OnValueChanged]`）。`NodinMonoBehaviourEditor` 会每帧读取该字段：为 `true` 时使用 Nodin 绘制，为 `false` 时委托给 Odin Editor 绘制。仅影响当前实例，不影响全局或其他实例。未安装 Odin 时关闭 toggle 会回退到原生绘制。参考 `NodinTest.cs` 中的实现。
+
 ### Q: 如何自定义 Dictionary 的列标签？
 A: 使用 `[DictionaryDrawerSettings]` 特性：
 ```csharp
@@ -550,6 +561,17 @@ public Dictionary<string, int> data;
 ```
 
 ## 更新日志
+
+### v1.7.0 (2026-07-25)
+- **Odin 共存重写**: 彻底重写 Odin Inspector 共存机制。旧方案通过 `finishedDefaultHeaderGUI` 钩子在 header 区域绘制 Nodin 内容并用 `ExitGUI` 阻止 Odin body，存在两个问题：header 区域的下拉列表不可点击、`ExitGUI` 无法完全阻止 Odin 继续绘制导致重复显示。新方案在 `EditorApplication.delayCall`（确保在 Odin 注册之后）扫描所有含 Nodin 属性的 `ScriptableObject` 子类型，直接在 `CustomEditorAttributes.kSCustomEditors` 内部字典中注册 `NodinEditor` 覆盖 Odin 的 `OdinEditor` 条目，使 Unity 直接选中 `NodinEditor` 作为活跃编辑器
+- **移除 finishedDefaultHeaderGUI 钩子**: `NodinEditor` 不再通过 header 钩子绘制 ScriptableObject，改为通过 `kSCustomEditors` 注册直接接管 `OnInspectorGUI`
+- **移除 ExitGUI 机制**: 不再需要 `GUIUtility.ExitGUI()` 或 `ExitGUIException` 来阻止 Odin 绘制，消除布局状态损坏风险
+- **移除 EnsureNodinPriority 旧方法**: 旧的 `Clear`/`RegisterEditorForType` 反射调用在目标 Unity 版本中不存在，已替换为直接操作 `kSCustomEditors` 字典
+- **HasNodinAttributes 增加属性检测**: `NodinEditor.HasNodinAttributes` 新增对 `[ShowInInspector]`/`[LabelText]`/`[BoxGroup]`/`[FoldoutGroup]` 属性的检测，确保仅使用属性特性的 ScriptableObject 也能被正确识别
+- **一次性启动开销，零运行时开销**: 注册仅在编辑器启动时执行一次（有 `_registered` 守卫），之后每帧 Inspector 绘制走原生 `CustomEditor` 路径，无回调、无反射、无异常
+- **MonoBehaviour 按实例切换 Nodin/Odin 绘制**: `NodinMonoBehaviourEditor` 新增按实例委托机制。当目标对象含 `bool useNodinDrawing` 字段且值为 `false` 时，通过 `Editor.CreateEditor(target, OdinEditorType)` 创建缓存的 Odin Editor 实例委托绘制，`OnDisable` 时销毁。仅影响当前实例，不修改全局 `kSCustomEditors` 注册表，不影响其他实例。未安装 Odin 时回退到 `DrawDefaultInspector()`
+- **未安装 Odin 时跳过启动扫描**: `RegisterNodinForNodinAttributedTypes` 新增 `HasOdin()` 守卫，无 Odin 时直接 return，避免不必要的全程序集扫描
+- **`NodinCompat.OdinEditorType`**: 暴露 `OdinEditor` 类型供外部按需创建编辑器实例
 
 ### v1.6.0 (2026-07-25)
 - **`[Serializable]` 自动内联绘制**: 标记了 `[Serializable]` 的类作为字段时自动内联绘制，带折叠头部 + helpBox 容器，无需额外添加 `[InlineProperty]`
@@ -560,6 +582,7 @@ public Dictionary<string, int> data;
 - **无分组按钮后置**: 未指定分组的 `[Button]` 方法绘制在所有分组之后，不再出现在数据上方
 - **`[Serializable]` 脚本定位**: 内联绘制的 `[Serializable]` 类自动查找并显示对应的 MonoScript 引用，点击可在 Project 窗口中定位脚本文件
 - **修复外部编辑器重复绘制**: `OnFinishedHeaderGUI` 钩子的跳过判断从命名空间字符串比较改为 `is NodinEditor` 类型检查，修复继承 `NodinEditor` 但不在 `Nodin.Editor` 命名空间的自定义编辑器（如 `FolderRuleConfigEditor`）被重复绘制的问题
+- **Odin 共存兼容**: 检测到项目中存在 Odin Inspector 时，通过 `[InitializeOnLoadMethod]` 重新注册 NodinEditor 覆盖 Odin 的编辑器注册，确保 Nodin 优先于 Odin 成为活跃编辑器。hook 中保留 OdinEditor 跳过作为兜底
 
 ### v1.5.0 (2026-07-24)
 - **BoxGroup 分组修复**: `[BoxGroup]` 现在正确作为分组绘制（此前仅检测但未参与分组渲染），当字段没有 `[FoldoutGroup]` 时自动作为后备分组
