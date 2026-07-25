@@ -53,7 +53,7 @@ namespace Nodin.Editor
         private static string _dragListKey;
         private static int _dragSrcIndex = -1;
         private static int _dragDstIndex = -1;
-        private static float _dragMouseOffsetY;
+        private static float _dragMouseOffsetY; // CS0414: 拖拽预留字段，暂未使用
         private static List<Rect> _dragRowRects = new();
         private const float _dragThreshold = 6f; // 拖拽启动阈值（像素）
         // 延迟启动拖拽：MouseDown 在空白处记录候选，MouseDrag 超过阈值后才真正启动
@@ -1016,6 +1016,7 @@ namespace Nodin.Editor
             // 右上角 + 按钮（覆盖在标题行右侧）
             if (canAdd)
             {
+                GUILayout.Space(0); // 确保 group 状态正确，避免 GetLastRect 报错
                 var lastRect = GUILayoutUtility.GetLastRect();
                 var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 1, 22, 18);
                 if (GUI.Button(btnRect, "+", EditorStyles.miniButton))
@@ -1312,6 +1313,7 @@ namespace Nodin.Editor
             }
 
             // 右上角添加按钮（覆盖在标题行右侧）
+            GUILayout.Space(0); // 确保 group 状态正确，避免 GetLastRect 报错
             var lastRect = GUILayoutUtility.GetLastRect();
             var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 3, 24, 18);
             bool addClicked = GUI.Button(btnRect, "+", EditorStyles.miniButton);
@@ -1430,10 +1432,14 @@ namespace Nodin.Editor
 
         // ── 按钮绘制 ──────────────────────────────────────
 
-        /// <summary>仅绘制所有按钮（不分组），用于 Odin 共存场景下补充绘制</summary>
+        /// <summary>
+        /// 仅绘制所有 [Button] 方法，供外部编辑器（如 Odin）共存时补充绘制。
+        /// 不绘制字段，避免与外部编辑器重复。
+        /// </summary>
         public void DrawButtonsOnly()
         {
             if (_methodMetas == null || _methodMetas.Length == 0) return;
+            EditorGUILayout.Space(4);
             foreach (var mm in _methodMetas)
             {
                 if (!ShouldShowMethod(mm)) continue;

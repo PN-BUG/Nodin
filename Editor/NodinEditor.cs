@@ -65,8 +65,8 @@ namespace Nodin.Editor
 
         // ── Odin 共存：通过 finishedDefaultHeaderGUI 钩子补充 Nodin 绘制 ──
         private static bool _finishedHeaderHooked;
-        // 记录哪些编辑器已经被 Nodin 接管，避免重复绘制
-        private static readonly HashSet<int> _handledInstanceIds = new();
+        // 标记当前帧已被 Nodin 接管（OnFinishedHeaderGUI 中设置，OnInspectorGUI 中消费）
+        private static bool _nodinTakenOver;
 
         static NodinEditor()
         {
@@ -82,21 +82,23 @@ namespace Nodin.Editor
             if (editor == null || editor.target == null) return;
             // 仅处理 ScriptableObject
             if (!(editor.target is ScriptableObject)) return;
-            // 如果当前编辑器就是 Nodin 自己的，则跳过（避免重复绘制）
-            if (editor.GetType().Namespace == "Nodin.Editor") return;
+            // 如果当前编辑器是 NodinEditor 或其子类，则跳过（避免重复绘制）
+            if (editor is NodinEditor) return;
 
             var type = editor.target.GetType();
 
             // 检查是否有 Nodin 属性
             if (!HasNodinAttributes(type)) return;
 
-            // 为每个 target 绘制 Nodin 内容
+            // Nodin 接管：绘制完整 Inspector 并标记，让后续 OnInspectorGUI 跳过
+            _nodinTakenOver = false;
             foreach (var t in editor.targets)
             {
                 if (t == null) continue;
                 var drawer = new NodinDrawer(t, t as Object);
                 drawer.Draw();
             }
+            _nodinTakenOver = true;
         }
 
         private void OnEnable()
@@ -210,8 +212,8 @@ namespace Nodin.Editor
             if (editor == null || editor.target == null) return;
             // 仅处理 MonoBehaviour
             if (!(editor.target is MonoBehaviour)) return;
-            // 如果当前编辑器就是 Nodin 自己的，则跳过（避免重复绘制）
-            if (editor.GetType().Namespace == "Nodin.Editor") return;
+            // 如果当前编辑器是 Nodin 自己的，则跳过（避免重复绘制）
+            if (editor is NodinMonoBehaviourFallbackEditor || editor is NodinMonoBehaviourEditor) return;
 
             var type = editor.target.GetType();
             if (!_buttonCache.TryGetValue(type, out var hasButtons))

@@ -559,6 +559,7 @@ public Dictionary<string, int> data;
 - **分组稳定排序**: 分组排序使用插入顺序作为 tiebreaker，保证 `Order` 相同时保持代码声明顺序
 - **无分组按钮后置**: 未指定分组的 `[Button]` 方法绘制在所有分组之后，不再出现在数据上方
 - **`[Serializable]` 脚本定位**: 内联绘制的 `[Serializable]` 类自动查找并显示对应的 MonoScript 引用，点击可在 Project 窗口中定位脚本文件
+- **修复外部编辑器重复绘制**: `OnFinishedHeaderGUI` 钩子的跳过判断从命名空间字符串比较改为 `is NodinEditor` 类型检查，修复继承 `NodinEditor` 但不在 `Nodin.Editor` 命名空间的自定义编辑器（如 `FolderRuleConfigEditor`）被重复绘制的问题
 
 ### v1.5.0 (2026-07-24)
 - **BoxGroup 分组修复**: `[BoxGroup]` 现在正确作为分组绘制（此前仅检测但未参与分组渲染），当字段没有 `[FoldoutGroup]` 时自动作为后备分组
