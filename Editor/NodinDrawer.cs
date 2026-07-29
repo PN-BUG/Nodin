@@ -64,6 +64,9 @@ namespace Nodin.Editor
         // ── 字典折叠状态 ──
         private readonly Dictionary<string, bool> _dictFoldouts = new();
 
+        // ── 集合分页状态（按列表/字典字段独立保存）──
+        private readonly Dictionary<string, int> _collectionPages = new();
+
         // ── 内联绘制器缓存（按字段名，避免每帧重建丢失折叠状态）──
         private readonly Dictionary<string, NodinDrawer> _inlineDrawerCache = new();
 
@@ -437,43 +440,52 @@ namespace Nodin.Editor
 
         // ── 分组标题栏 ──────────────────────────────────
 
-        private static void DrawGroupHeader(string title, bool expanded, bool isSubGroup, out bool clicked, float rightReservedWidth = 0f)
+        private static Rect DrawGroupHeader(string title, bool expanded, bool isSubGroup, out bool clicked, float rightReservedWidth = 0f)
         {
             clicked = false;
             var rect = EditorGUILayout.GetControlRect(GUILayout.Height(isSubGroup ? 22 : 26));
-            // 点击检测区域排除右侧预留宽度（如 + 按钮区域）
-            var clickRect = rightReservedWidth > 0
-                ? new Rect(rect.x, rect.y, rect.width - rightReservedWidth, rect.height)
-                : rect;
-            if (Event.current.type == EventType.MouseDown && clickRect.Contains(Event.current.mousePosition))
-            {
-                clicked = true;
-                Event.current.Use();
-            }
 
-            var bgRect = rect;
+            // 绘制背景
             if (isSubGroup)
-                EditorGUI.DrawRect(bgRect, NodinSettings.GroupSubHeaderBg);
+                EditorGUI.DrawRect(rect, NodinSettings.GroupSubHeaderBg);
             else
-                EditorGUI.DrawRect(bgRect, NodinSettings.GroupHeaderBg);
+                EditorGUI.DrawRect(rect, NodinSettings.GroupHeaderBg);
 
+            // 左侧彩色条
             var barRect = new Rect(rect.x, rect.y, 3, rect.height);
             EditorGUI.DrawRect(barRect, isSubGroup ? new Color(0.4f, 0.4f, 0.45f, 0.8f) : NodinSettings.AccentColor);
 
-            var arrowRect = new Rect(rect.x + 8, rect.y, 16, rect.height);
+            // 箭头
             var arrow = expanded ? "▼" : "▶";
             var oldColor = GUI.color;
             GUI.color = NodinSettings.ArrowColor;
-            GUI.Label(arrowRect, arrow, EditorStyles.miniLabel);
+            GUI.Label(new Rect(rect.x + 8, rect.y, 16, rect.height), arrow, EditorStyles.miniLabel);
             GUI.color = oldColor;
 
-            var labelRect = new Rect(rect.x + 26, rect.y, rect.width - 26, rect.height);
+            // 标题文字
             var headerStyle = new GUIStyle(EditorStyles.boldLabel)
             {
                 fontSize = NodinSettings.GroupHeaderFontSize,
                 normal = { textColor = NodinSettings.LabelColor }
             };
+            var labelRect = new Rect(rect.x + 26, rect.y, rect.width - 26 - (rightReservedWidth > 0 ? rightReservedWidth : 0), rect.height);
             EditorGUI.LabelField(labelRect, title, headerStyle);
+
+            // 点击检测（整个标题区域，排除右侧按钮区域）
+            var clickRect = rightReservedWidth > 0
+                ? new Rect(rect.x, rect.y, rect.width - rightReservedWidth, rect.height)
+                : rect;
+
+            // 使用 Button 处理点击
+            var prevColor = GUI.color;
+            GUI.color = new Color(0, 0, 0, 0.001f); // 几乎透明，但仍可接收点击
+            if (GUI.Button(clickRect, GUIContent.none))
+            {
+                clicked = true;
+            }
+            GUI.color = prevColor;
+
+            return rect;
         }
 
         // ── 字段绘制 ──────────────────────────────────────
@@ -625,7 +637,9 @@ namespace Nodin.Editor
             var label = fm.Label;
             var enabled = ShouldEnable(fm);
             var prevEnabled = GUI.enabled;
-            GUI.enabled = enabled;
+            // 子 Drawer 必须继承父级的禁用状态；否则 [ReadOnly] 容器内的
+            // [Serializable] 对象会重新启用自己的字段。
+            GUI.enabled = prevEnabled && enabled;
 
             // DisplayAsString — 以只读字符串显示
             if (fm.DisplayAsString != null)
@@ -994,6 +1008,9 @@ namespace Nodin.Editor
             bool canDrag = settings?.DraggableItems != false;
             bool canAdd = settings?.HideAddButton != true;
             bool alwaysAddDefault = settings?.AlwaysAddDefaultValue == true;
+            int pageSize = settings?.NumberOfItemsPerPage > 0
+                ? settings.NumberOfItemsPerPage
+                : NodinSettings.CollectionItemsPerPage;
             if (value == null) return;
             var listType = type.GetGenericArguments()[0];
             bool inlineItems = listType.GetCustomAttribute<InlinePropertyAttribute>() != null
@@ -1006,7 +1023,12 @@ namespace Nodin.Editor
                 _foldoutStates[foldKey] = false;
             bool expanded = _foldoutStates[foldKey];
 
-            DrawGroupHeader($"{label}  ({list.Count})", expanded, isSubGroup: false, out var toggled, rightReservedWidth: 32);
+            // ReadOnly 应只禁止数据编辑，折叠状态仍应可操作。
+            // DrawField 会在 ReadOnly 字段外层禁用 GUI，因此这里临时恢复交互。
+            bool previousGuiEnabled = GUI.enabled;
+            GUI.enabled = true;
+            var headerRect = DrawGroupHeader($"{label}  ({list.Count})", expanded, isSubGroup: false, out var toggled, rightReservedWidth: 32);
+            GUI.enabled = previousGuiEnabled;
             if (toggled)
             {
                 _foldoutStates[foldKey] = !expanded;
@@ -1016,9 +1038,7 @@ namespace Nodin.Editor
             // 右上角 + 按钮（覆盖在标题行右侧）
             if (canAdd)
             {
-                GUILayout.Space(0); // 确保 group 状态正确，避免 GetLastRect 报错
-                var lastRect = GUILayoutUtility.GetLastRect();
-                var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 1, 22, 18);
+                var btnRect = new Rect(headerRect.xMax - 28, headerRect.y + 1, 22, 18);
                 if (GUI.Button(btnRect, "+", EditorStyles.miniButton))
                 {
                     RecordUndo("Nodin: 添加列表元素");
@@ -1031,6 +1051,8 @@ namespace Nodin.Editor
             }
 
             if (!expanded) return;
+
+            DrawCollectionPagination(foldKey, list.Count, pageSize, out int pageStart, out int pageEnd);
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             EditorGUILayout.Space(2);
@@ -1059,15 +1081,15 @@ namespace Nodin.Editor
                 for (int r = 0; r < _dragRowRects.Count; r++)
                 {
                     var rr = _dragRowRects[r];
-                    if (mousePos.y < rr.yMin) { _dragDstIndex = r; break; }
+                    if (mousePos.y < rr.yMin) { _dragDstIndex = pageStart + r; break; }
                     if (mousePos.y >= rr.yMin && mousePos.y < rr.yMax)
                     {
-                        _dragDstIndex = mousePos.y < rr.yMin + rr.height * 0.5f ? r : r + 1;
+                        _dragDstIndex = mousePos.y < rr.yMin + rr.height * 0.5f ? pageStart + r : pageStart + r + 1;
                         break;
                     }
                     if (r == _dragRowRects.Count - 1 && mousePos.y >= rr.yMax)
                     {
-                        _dragDstIndex = _dragRowRects.Count;
+                        _dragDstIndex = pageEnd;
                         break;
                     }
                 }
@@ -1094,7 +1116,7 @@ namespace Nodin.Editor
             bool skipRemaining = false;
             System.Action pendingReorder = null; // 延迟执行排序，避免循环中修改列表导致索引错乱
 
-            for (int i = 0; i < list.Count; i++)
+            for (int i = pageStart; i < pageEnd; i++)
             {
                 if (skipRemaining) break;
 
@@ -1110,6 +1132,8 @@ namespace Nodin.Editor
                 }
 
                 var itemValue = list[i];
+                // 每个元素独立容器，便于区分复杂对象及其嵌套列表。
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                 EditorGUILayout.BeginHorizontal();
 
                 // ── 拖拽把手（≡ 视觉提示，不是按钮）──
@@ -1160,7 +1184,14 @@ namespace Nodin.Editor
                 {
                     // [InlineProperty] 内联绘制：将类字段直接展开在列表行中
                     EditorGUILayout.BeginVertical();
-                    var inlineDrawer = new NodinDrawer(itemValue, _undoTarget);
+                    // 保留元素 Drawer，避免每次 Repaint 都重置内部 List/Foldout 状态。
+                    var drawerKey = $"__list_{foldKey}_{i}";
+                    if (!_inlineDrawerCache.TryGetValue(drawerKey, out var inlineDrawer)
+                        || inlineDrawer.Target != itemValue)
+                    {
+                        inlineDrawer = new NodinDrawer(itemValue, _undoTarget);
+                        _inlineDrawerCache[drawerKey] = inlineDrawer;
+                    }
                     inlineDrawer.Draw();
                     EditorGUILayout.EndVertical();
                 }
@@ -1186,6 +1217,7 @@ namespace Nodin.Editor
                         (list[i], list[i - 1]) = (list[i - 1], list[i]);
                         GUI.changed = true;
                         EditorGUILayout.EndHorizontal();
+                        EditorGUILayout.EndVertical();
                         skipRemaining = true;
                     }
                 }
@@ -1199,6 +1231,7 @@ namespace Nodin.Editor
                         (list[i], list[i + 1]) = (list[i + 1], list[i]);
                         GUI.changed = true;
                         EditorGUILayout.EndHorizontal();
+                        EditorGUILayout.EndVertical();
                         skipRemaining = true;
                     }
                 }
@@ -1210,11 +1243,13 @@ namespace Nodin.Editor
                     list.RemoveAt(i);
                     GUI.changed = true;
                     EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.EndVertical();
                     skipRemaining = true;
                 }
                 if (skipRemaining) continue;
 
                 EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
 
                 // 记录整行 Rect（仅拖拽中的列表，防止其它列表覆盖）
                 if (evtType == EventType.Repaint && isDraggingThisList)
@@ -1238,7 +1273,7 @@ namespace Nodin.Editor
                 }
 
                 // ── 拖拽结束 ──
-                if (evtType == EventType.MouseUp && (isDraggingThisList || isPendingThisList) && i == list.Count - 1)
+                if (evtType == EventType.MouseUp && (isDraggingThisList || isPendingThisList) && i == pageEnd - 1)
                 {
                     if (isDraggingThisList && _dragDstIndex != _dragSrcIndex && _dragDstIndex >= 0)
                     {
@@ -1294,6 +1329,11 @@ namespace Nodin.Editor
             var keyType = type.GetGenericArguments()[0];
             var valType = type.GetGenericArguments()[1];
             var dict = (System.Collections.IDictionary)value;
+            bool inlineValues = valType.GetCustomAttribute<InlinePropertyAttribute>() != null
+                || valType.GetCustomAttribute<SerializableAttribute>() != null;
+            int pageSize = settings?.NumberOfItemsPerPage > 0
+                ? settings.NumberOfItemsPerPage
+                : NodinSettings.CollectionItemsPerPage;
 
             string keyLabel = settings?.KeyLabel ?? "Key";
             string valLabel = settings?.ValueLabel ?? "Value";
@@ -1305,7 +1345,11 @@ namespace Nodin.Editor
             bool expanded = _dictFoldouts[foldKey];
 
             // ── 标题行（复用 DrawGroupHeader 样式，右侧预留 + 按钮区域）──
-            DrawGroupHeader($"{label}  ({dict.Count})", expanded, isSubGroup: false, out var toggled, rightReservedWidth: 32);
+            // 与 List 一致：只读字典仍允许展开/折叠查看内容。
+            bool previousGuiEnabled = GUI.enabled;
+            GUI.enabled = true;
+            var headerRect = DrawGroupHeader($"{label}  ({dict.Count})", expanded, isSubGroup: false, out var toggled, rightReservedWidth: 32);
+            GUI.enabled = previousGuiEnabled;
             if (toggled)
             {
                 _dictFoldouts[foldKey] = !expanded;
@@ -1313,9 +1357,7 @@ namespace Nodin.Editor
             }
 
             // 右上角添加按钮（覆盖在标题行右侧）
-            GUILayout.Space(0); // 确保 group 状态正确，避免 GetLastRect 报错
-            var lastRect = GUILayoutUtility.GetLastRect();
-            var btnRect = new Rect(lastRect.xMax - 28, lastRect.y + 3, 24, 18);
+            var btnRect = new Rect(headerRect.xMax - 28, headerRect.y + 3, 24, 18);
             bool addClicked = GUI.Button(btnRect, "+", EditorStyles.miniButton);
 
             if (addClicked)
@@ -1353,6 +1395,8 @@ namespace Nodin.Editor
             // 折叠时不显示内容
             if (!expanded) return;
 
+            DrawCollectionPagination(foldKey, dict.Count, pageSize, out int pageStart, out int pageEnd);
+
             EditorGUILayout.BeginVertical(EditorStyles.textArea);
             EditorGUI.indentLevel++;
 
@@ -1373,9 +1417,15 @@ namespace Nodin.Editor
             var keys = new object[dict.Count];
             dict.Keys.CopyTo(keys, 0);
 
-            foreach (var key in keys)
+            for (int keyIndex = pageStart; keyIndex < pageEnd; keyIndex++)
             {
+                var key = keys[keyIndex];
                 var entryVal = dict[key];
+                bool drawInlineValue = inlineValues && entryVal != null;
+                string entryFoldKey = $"{foldKey}:{key}";
+                if (drawInlineValue && !_dictFoldouts.ContainsKey(entryFoldKey))
+                    _dictFoldouts[entryFoldKey] = false;
+
                 EditorGUILayout.BeginHorizontal();
 
                 if (keyType.IsEnum)
@@ -1394,7 +1444,9 @@ namespace Nodin.Editor
                 {
                     EditorGUILayout.LabelField($"{key}", GUILayout.Width(80));
                 }
-                if (valType == typeof(bool))
+                if (drawInlineValue)
+                    _dictFoldouts[entryFoldKey] = EditorGUILayout.Foldout(_dictFoldouts[entryFoldKey], valType.Name, true);
+                else if (valType == typeof(bool))
                     dict[key] = EditorGUILayout.Toggle((bool)(entryVal ?? false));
                 else if (valType == typeof(int))
                     dict[key] = EditorGUILayout.IntField((int)(entryVal ?? 0));
@@ -1413,21 +1465,77 @@ namespace Nodin.Editor
                 else
                     EditorGUILayout.LabelField(entryVal?.ToString() ?? "null");
 
-                if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16)))
+                bool removeClicked = GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(16));
+                EditorGUILayout.EndHorizontal();
+
+                if (removeClicked)
                 {
                     RecordUndo("Nodin: 删除字典条目");
                     dict.Remove(key);
                     GUI.changed = true;
-                    EditorGUILayout.EndHorizontal();
                     break;
                 }
 
-                EditorGUILayout.EndHorizontal();
+                if (drawInlineValue && _dictFoldouts[entryFoldKey])
+                {
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    var drawerKey = $"__dict_{entryFoldKey}";
+                    if (!_inlineDrawerCache.TryGetValue(drawerKey, out var inlineDrawer)
+                        || inlineDrawer.Target != entryVal)
+                    {
+                        inlineDrawer = new NodinDrawer(entryVal, _undoTarget);
+                        _inlineDrawerCache[drawerKey] = inlineDrawer;
+                    }
+                    inlineDrawer.Draw();
+                    EditorGUILayout.EndVertical();
+                }
             }
 
             EditorGUI.indentLevel--;
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space(2);
+        }
+
+        /// <summary>
+        /// 绘制集合分页栏。分页导航不修改集合内容，因此 ReadOnly 集合也允许操作。
+        /// </summary>
+        private void DrawCollectionPagination(string collectionKey, int itemCount, int pageSize, out int startIndex, out int endIndex)
+        {
+            pageSize = Mathf.Max(1, pageSize);
+            int pageCount = Mathf.Max(1, Mathf.CeilToInt(itemCount / (float)pageSize));
+            if (!_collectionPages.TryGetValue(collectionKey, out int page))
+                page = 0;
+            page = Mathf.Clamp(page, 0, pageCount - 1);
+            _collectionPages[collectionKey] = page;
+
+            startIndex = page * pageSize;
+            endIndex = Mathf.Min(startIndex + pageSize, itemCount);
+            if (pageCount <= 1) return;
+
+            bool previousGuiEnabled = GUI.enabled;
+            GUI.enabled = true;
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            using (new EditorGUI.DisabledScope(page == 0))
+            {
+                if (GUILayout.Button("◀", EditorStyles.miniButtonLeft, GUILayout.Width(26)))
+                {
+                    _collectionPages[collectionKey] = page - 1;
+                    GUI.changed = true;
+                }
+            }
+            GUILayout.Label($"{startIndex + 1}-{endIndex} / {itemCount}  （第 {page + 1}/{pageCount} 页）", EditorStyles.centeredGreyMiniLabel);
+            using (new EditorGUI.DisabledScope(page >= pageCount - 1))
+            {
+                if (GUILayout.Button("▶", EditorStyles.miniButtonRight, GUILayout.Width(26)))
+                {
+                    _collectionPages[collectionKey] = page + 1;
+                    GUI.changed = true;
+                }
+            }
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+            GUI.enabled = previousGuiEnabled;
         }
 
         // ── 按钮绘制 ──────────────────────────────────────
@@ -1491,7 +1599,7 @@ namespace Nodin.Editor
             if (mm.GUIColor != null) GUI.backgroundColor = mm.GUIColor.Color;
 
             var prevEnabled = GUI.enabled;
-            GUI.enabled = enabled;
+            GUI.enabled = prevEnabled && enabled;
 
             if (GUILayout.Button(label, GUILayout.Height(height)))
             {

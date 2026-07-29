@@ -179,6 +179,7 @@ namespace Nodin.Editor
 
         private static bool HasNodinAttributes(System.Type type)
         {
+            // 检查字段上的特性
             var fields = type.GetFields(BindingFlags.Public
                 | BindingFlags.Instance
                 | BindingFlags.NonPublic);
@@ -200,15 +201,28 @@ namespace Nodin.Editor
                     return true;
             }
 
-            // 检查 [ShowInInspector] 属性
-            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+            // 检查属性上的特性
+            var properties = type.GetProperties(BindingFlags.Public
+                | BindingFlags.Instance
+                | BindingFlags.NonPublic);
+
             foreach (var p in properties)
             {
+                // 跳过索引器
                 if (p.GetIndexParameters().Length > 0) continue;
-                if (p.GetCustomAttribute<ShowInInspectorAttribute>() != null
-                    || p.GetCustomAttribute<LabelTextAttribute>() != null
+
+                if (p.GetCustomAttribute<LabelTextAttribute>() != null
+                    || p.GetCustomAttribute<FoldoutGroupAttribute>() != null
                     || p.GetCustomAttribute<BoxGroupAttribute>() != null
-                    || p.GetCustomAttribute<FoldoutGroupAttribute>() != null)
+                    || p.GetCustomAttribute<ToggleGroupAttribute>() != null
+                    || p.GetCustomAttribute<ShowIfAttribute>() != null
+                    || p.GetCustomAttribute<HideIfAttribute>() != null
+                    || p.GetCustomAttribute<ReadOnlyAttribute>() != null
+                    || p.GetCustomAttribute<ShowInInspectorAttribute>() != null
+                    || p.GetCustomAttribute<InfoBoxAttribute>() != null
+                    || p.GetCustomAttribute<ValueDropdownAttribute>() != null
+                    || p.GetCustomAttribute<ListDrawerSettingsAttribute>() != null
+                    || p.GetCustomAttribute<EnumToggleButtonsAttribute>() != null)
                     return true;
             }
 
@@ -400,6 +414,7 @@ namespace Nodin.Editor
 
         private static bool HasNodinAttributes(System.Type type)
         {
+            // 检查字段上的特性
             var fields = type.GetFields(BindingFlags.Public
                 | BindingFlags.Instance
                 | BindingFlags.NonPublic);
@@ -420,6 +435,32 @@ namespace Nodin.Editor
                     || f.GetCustomAttribute<EnumToggleButtonsAttribute>() != null)
                     return true;
             }
+
+            // 检查属性上的特性
+            var properties = type.GetProperties(BindingFlags.Public
+                | BindingFlags.Instance
+                | BindingFlags.NonPublic);
+
+            foreach (var p in properties)
+            {
+                // 跳过索引器
+                if (p.GetIndexParameters().Length > 0) continue;
+
+                if (p.GetCustomAttribute<LabelTextAttribute>() != null
+                    || p.GetCustomAttribute<FoldoutGroupAttribute>() != null
+                    || p.GetCustomAttribute<BoxGroupAttribute>() != null
+                    || p.GetCustomAttribute<ToggleGroupAttribute>() != null
+                    || p.GetCustomAttribute<ShowIfAttribute>() != null
+                    || p.GetCustomAttribute<HideIfAttribute>() != null
+                    || p.GetCustomAttribute<ReadOnlyAttribute>() != null
+                    || p.GetCustomAttribute<ShowInInspectorAttribute>() != null
+                    || p.GetCustomAttribute<InfoBoxAttribute>() != null
+                    || p.GetCustomAttribute<ValueDropdownAttribute>() != null
+                    || p.GetCustomAttribute<ListDrawerSettingsAttribute>() != null
+                    || p.GetCustomAttribute<EnumToggleButtonsAttribute>() != null)
+                    return true;
+            }
+
             return false;
         }
     }

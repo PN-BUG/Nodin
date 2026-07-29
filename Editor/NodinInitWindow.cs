@@ -51,6 +51,7 @@ namespace Nodin.Editor
         private int _btnMediumH = 28;
         private int _btnLargeH = 36;
         private int _dropdownH = 20;
+        private int _collectionItemsPerPage = 20;
         private int _fontSize = 12;
         private int _groupHeaderFontSize = 14;
         private Color _textColor = new Color(0.847f, 0.851f, 0.882f, 1f);
@@ -84,6 +85,7 @@ namespace Nodin.Editor
                 _btnMediumH = existing.buttonHeightMedium;
                 _btnLargeH = existing.buttonHeightLarge;
                 _dropdownH = existing.dropdownHeight;
+                _collectionItemsPerPage = existing.collectionItemsPerPage;
                 _fontSize = existing.fontSize;
                 _groupHeaderFontSize = existing.groupHeaderFontSize;
                 _textColor = existing.textColor;
@@ -296,6 +298,11 @@ namespace Nodin.Editor
             _dropdownH = EditorGUILayout.IntSlider("下拉列表高度", _dropdownH, 12, 60);
             EditorGUILayout.EndVertical();
 
+            DrawSectionLabel("列表设置");
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            _collectionItemsPerPage = EditorGUILayout.IntSlider("列表/字典每页项数", _collectionItemsPerPage, 1, 200);
+            EditorGUILayout.EndVertical();
+
             // ── 字体设置 ──
             DrawSectionLabel("字体设置");
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
@@ -408,6 +415,7 @@ namespace Nodin.Editor
                 settings.buttonHeightMedium = _btnMediumH;
                 settings.buttonHeightLarge = _btnLargeH;
                 settings.dropdownHeight = _dropdownH;
+                settings.collectionItemsPerPage = _collectionItemsPerPage;
                 settings.fontSize = _fontSize;
                 settings.groupHeaderFontSize = _groupHeaderFontSize;
                 settings.textColor = _textColor;

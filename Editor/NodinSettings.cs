@@ -47,6 +47,9 @@ namespace Nodin.Editor
         [FoldoutGroup("下拉设置", true), LabelText("下拉列表高度"), MinValue(12), MaxValue(60)]
         public int dropdownHeight = 20;
 
+        [FoldoutGroup("列表设置", true), LabelText("列表/字典每页项数"), MinValue(1)]
+        public int collectionItemsPerPage = 20;
+
         // ── 字体设置 ──────────────────────────────────────
 
         [FoldoutGroup("字体设置", true), LabelText("标签字号"), Range(8, 24)]
@@ -115,6 +118,17 @@ namespace Nodin.Editor
         public static int ButtonHeightMedium => Get()?.buttonHeightMedium ?? 28;
         public static int ButtonHeightLarge => Get()?.buttonHeightLarge ?? 36;
         public static int DropdownHeight => Get()?.dropdownHeight ?? 20;
+        // 旧版 Settings 资产没有该序列化字段时会反序列化为 0，需回退默认值而非每页 1 项。
+        public static int CollectionItemsPerPage
+        {
+            get
+            {
+                var settings = Get();
+                return settings != null && settings.collectionItemsPerPage > 0
+                    ? settings.collectionItemsPerPage
+                    : 20;
+            }
+        }
         public static int FontSize => Get()?.fontSize ?? 12;
         public static int GroupHeaderFontSize => Get()?.groupHeaderFontSize ?? 14;
         public static Color TextColor => Get()?.textColor ?? new Color(0.847f, 0.851f, 0.882f, 1f);

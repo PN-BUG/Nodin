@@ -48,7 +48,7 @@ namespace Nodin
     /// 用法：[ToggleGroup("组名")] public bool toggle;
     ///       [ToggleGroup("组名")] public Color color;
     /// </summary>
-    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
     public class ToggleGroupAttribute : Attribute
     {
         public string GroupName { get; }
@@ -327,6 +327,8 @@ namespace Nodin
         public string KeyLabel { get; set; }
         /// <summary>Value 列显示的标签文本</summary>
         public string ValueLabel { get; set; }
+        /// <summary>每页绘制项数；0 时使用 Nodin 全局设置</summary>
+        public int NumberOfItemsPerPage { get; set; }
         /// <summary>是否显示 Key 列标签（默认 true）</summary>
         public bool IsReadOnly { get; set; }
     }

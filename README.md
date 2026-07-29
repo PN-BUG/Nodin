@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- **版本**: 1.7.0
+- **版本**: 1.8.0
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -31,7 +31,7 @@
 - **`[HideIf]`** - 当指定成员值等于目标值时隐藏字段
 - **`[EnableIf]`** - 当指定成员值等于目标值时启用字段
 - **`[DisableIf]`** - 当指定成员值等于目标值时禁用字段
-- **`[ReadOnly]`** - 将字段标记为只读（不可编辑）
+- **`[ReadOnly]`** - 将字段标记为只读（不可编辑）；对 List、Dictionary 及 `[Serializable]` 嵌套对象递归生效，同时仍允许展开、折叠和翻页查看
 
 ### 按钮 & 动作
 - **`[Button]`** - 将方法绘制为 Inspector 按钮（支持 Small/Medium/Large 尺寸）
@@ -45,8 +45,8 @@
 - **`[AssetsOnly]`** - 限制 Object 引用仅允许 Asset（非场景对象）
 - **`[OnValueChanged]`** - 字段值改变后回调指定方法
 - **`[MinValue]`** - 设置数值字段的最小值约束
-- **`[ListDrawerSettings]`** - List 字段的绘制设置
-- **`[DictionaryDrawerSettings]`** - Dictionary 字段的绘制设置（自定义 Key/Value 列标签）
+- **`[ListDrawerSettings]`** - List 字段的绘制设置；`NumberOfItemsPerPage` 可覆盖全局分页大小
+- **`[DictionaryDrawerSettings]`** - Dictionary 字段的绘制设置（自定义 Key/Value 列标签）；`NumberOfItemsPerPage` 可覆盖全局分页大小
 - **`[Serializable]` 自动内联绘制** - 标记了 `[Serializable]` 的类作为字段时自动内联绘制，带折叠头部和脚本定位
 - **`[ShowInInspector]` 属性支持** - 标记了 `[ShowInInspector]` 的属性（含表达式体属性）自动被收集绘制
 
@@ -345,6 +345,24 @@ public class GameConfig : NodinMonoBehaviour
 }
 ```
 
+## 集合绘制、分页与只读
+
+- List 的每个元素使用独立 `helpBox` 容器绘制，便于区分复杂对象和嵌套列表。
+- 当集合元素数量超过每页项数时，Nodin 仅绘制当前页；默认每页 **20** 项，以避免 Inspector 在大集合下卡顿。
+- 可在 `NodinSettings.asset` 的“列表设置 / 列表/字典每页项数”中修改全局默认值。也可从 `Tools/Nodin/初始化设置` 修改后保存。
+- 局部覆盖全局设置：
+
+```csharp
+[ListDrawerSettings(NumberOfItemsPerPage = 50)]
+public List<StoryData> storyDatas = new();
+
+[DictionaryDrawerSettings(KeyLabel = "节点", ValueLabel = "数据", NumberOfItemsPerPage = 50)]
+public Dictionary<string, StoryData> storyDataDict = new();
+```
+
+- `Dictionary<TKey, TValue>` 的值为 `[Serializable]` 或 `[InlineProperty]` 类时，会以独立可折叠项递归内联绘制。
+- `[ReadOnly]` 会递归禁止集合元素及其嵌套对象的编辑；折叠、展开和分页导航保持可用。
+
 ## 支持的数据类型
 
 Nodin 支持以下 Unity 数据类型的自动绘制：
@@ -561,6 +579,12 @@ public Dictionary<string, int> data;
 ```
 
 ## 更新日志
+
+### v1.8.0 (2026-07-29)
+- **集合分页绘制**: List 和 Dictionary 超过全局每页项数时按页绘制，默认 20 项；可在 `NodinSettings.asset` / 初始化设置中调整，也可通过两个 DrawerSettings 的 `NumberOfItemsPerPage` 局部覆盖。
+- **复杂 Dictionary 值**: `[Serializable]` / `[InlineProperty]` 类型的字典值支持可折叠的递归内联绘制，并缓存内部 Drawer 状态。
+- **ReadOnly 递归与可浏览性**: `[ReadOnly]` 现在递归禁止嵌套集合与对象的编辑，但不影响集合、嵌套列表和字典的折叠、展开、分页浏览。
+- **列表可读性**: 每个 List 元素使用独立 `helpBox` 容器，复杂数据条目更易区分；元素 Drawer 缓存确保嵌套折叠状态在 Repaint 后保持。
 
 ### v1.7.0 (2026-07-25)
 - **Odin 共存重写**: 彻底重写 Odin Inspector 共存机制。旧方案通过 `finishedDefaultHeaderGUI` 钩子在 header 区域绘制 Nodin 内容并用 `ExitGUI` 阻止 Odin body，存在两个问题：header 区域的下拉列表不可点击、`ExitGUI` 无法完全阻止 Odin 继续绘制导致重复显示。新方案在 `EditorApplication.delayCall`（确保在 Odin 注册之后）扫描所有含 Nodin 属性的 `ScriptableObject` 子类型，直接在 `CustomEditorAttributes.kSCustomEditors` 内部字典中注册 `NodinEditor` 覆盖 Odin 的 `OdinEditor` 条目，使 Unity 直接选中 `NodinEditor` 作为活跃编辑器
