@@ -31,6 +31,8 @@ namespace Nodin.Editor
         // ── 缓存的字段/方法元数据（构造时一次性读取所有 Attribute）──
         private readonly FieldMeta[] _fieldMetas;
         private readonly MethodMeta[] _methodMetas;
+        // Button 方法参数只属于 Inspector 临时输入状态，不写入目标对象。
+        private readonly Dictionary<MethodInfo, object[]> _buttonParameterValues = new();
 
         // ── 缓存的分组排序（构造时计算，避免每帧 LINQ 遍历）──
         private readonly List<string> _orderedTopGroups;
@@ -1601,17 +1603,49 @@ namespace Nodin.Editor
             var prevEnabled = GUI.enabled;
             GUI.enabled = prevEnabled && enabled;
 
+            var parameters = mm.Method.GetParameters();
+            if (!_buttonParameterValues.TryGetValue(mm.Method, out var args))
+            {
+                args = new object[parameters.Length];
+                for (int i = 0; i < parameters.Length; i++) args[i] = GetDefaultButtonParameterValue(parameters[i]);
+                _buttonParameterValues.Add(mm.Method, args);
+            }
+            if (parameters.Length > 0)
+            {
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                for (int i = 0; i < parameters.Length; i++)
+                    args[i] = DrawButtonParameter(parameters[i], args[i]);
+            }
             if (GUILayout.Button(label, GUILayout.Height(height)))
             {
-                var paramStrs = mm.Method.GetParameters();
-                var args = new object[paramStrs.Length];
-                for (int i = 0; i < paramStrs.Length; i++)
-                    args[i] = paramStrs[i].DefaultValue != DBNull.Value ? paramStrs[i].DefaultValue : (paramStrs[i].ParameterType.IsValueType ? Activator.CreateInstance(paramStrs[i].ParameterType) : null);
                 mm.Method.Invoke(_target, args);
             }
+            if (parameters.Length > 0)
+                EditorGUILayout.EndVertical();
 
             GUI.enabled = prevEnabled;
             GUI.backgroundColor = prevColor;
+        }
+
+        private static object GetDefaultButtonParameterValue(ParameterInfo parameter)
+        {
+            return parameter.HasDefaultValue && parameter.DefaultValue != DBNull.Value ? parameter.DefaultValue
+                : parameter.ParameterType.IsValueType ? Activator.CreateInstance(parameter.ParameterType) : null;
+        }
+
+        private static object DrawButtonParameter(ParameterInfo parameter, object value)
+        {
+            var type = parameter.ParameterType;
+            string label = ObjectNames.NicifyVariableName(parameter.Name);
+            if (type == typeof(bool)) return EditorGUILayout.Toggle(label, value is bool b && b);
+            if (type == typeof(int)) return EditorGUILayout.IntField(label, value is int i ? i : 0);
+            if (type == typeof(float)) return EditorGUILayout.FloatField(label, value is float f ? f : 0f);
+            if (type == typeof(double)) return EditorGUILayout.DoubleField(label, value is double d ? d : 0d);
+            if (type == typeof(string)) return EditorGUILayout.TextField(label, value as string ?? string.Empty);
+            if (type.IsEnum) return EditorGUILayout.EnumPopup(label, value as Enum ?? (Enum)Enum.GetValues(type).GetValue(0));
+            if (typeof(UnityEngine.Object).IsAssignableFrom(type)) return EditorGUILayout.ObjectField(label, value as UnityEngine.Object, type, true);
+            EditorGUILayout.LabelField(label, $"不支持的参数类型：{type.Name}");
+            return value;
         }
 
         // ── 辅助 ──────────────────────────────────────────
