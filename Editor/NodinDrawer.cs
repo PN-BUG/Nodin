@@ -954,12 +954,11 @@ namespace Nodin.Editor
             if (typeof(UnityEngine.Object).IsAssignableFrom(type))
                 return EditorGUILayout.ObjectField(hideLabel ? GUIContent.none : _cachedLabel, (UnityEngine.Object)value, type, true);
 
-            // List<T>
-            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+            // List<T> / T[]
+            if ((type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) || type.IsArray)
             {
                 var listSettings = fm.GetAttr<ListDrawerSettingsAttribute>();
-                DrawListField(label, value, type, hideLabel, listSettings);
-                return value;
+                return DrawListField(label, value, type, hideLabel, listSettings);
             }
 
             // Dictionary<TKey, TValue>
@@ -1005,7 +1004,7 @@ namespace Nodin.Editor
             return value;
         }
 
-        private void DrawListField(string label, object value, Type type, bool hideLabel, ListDrawerSettingsAttribute settings = null)
+        private object DrawListField(string label, object value, Type type, bool hideLabel, ListDrawerSettingsAttribute settings = null)
         {
             bool canDrag = settings?.DraggableItems != false;
             bool canAdd = settings?.HideAddButton != true;
@@ -1013,11 +1012,14 @@ namespace Nodin.Editor
             int pageSize = settings?.NumberOfItemsPerPage > 0
                 ? settings.NumberOfItemsPerPage
                 : NodinSettings.CollectionItemsPerPage;
-            if (value == null) return;
-            var listType = type.GetGenericArguments()[0];
+            if (value == null) return value;
+            bool isArray = type.IsArray;
+            var listType = isArray ? type.GetElementType() : type.GetGenericArguments()[0];
             bool inlineItems = listType.GetCustomAttribute<InlinePropertyAttribute>() != null
                 || listType.GetCustomAttribute<SerializableAttribute>() != null;
-            var list = (System.Collections.IList)value;
+            var list = isArray
+                ? new List<object>(((Array)value).Cast<object>())
+                : (System.Collections.IList)value;
 
             // ── 折叠头部（复用分组标题样式）──
             string foldKey = $"__list_{label}_{type.FullName}";
@@ -1044,15 +1046,19 @@ namespace Nodin.Editor
                 if (GUI.Button(btnRect, "+", EditorStyles.miniButton))
                 {
                     RecordUndo("Nodin: 添加列表元素");
-                    object defaultVal = (alwaysAddDefault || listType.IsValueType)
-                        ? Activator.CreateInstance(listType)
-                        : null;
+                    // UnityEngine.Object（例如 AudioClip）不能通过 Activator 构造；
+                    // 新增时保留 null 槽位，供 Inspector 指定或拖入资源。
+                    bool canCreateDefault = listType.IsValueType
+                        || (alwaysAddDefault
+                            && !typeof(UnityEngine.Object).IsAssignableFrom(listType)
+                            && listType.GetConstructor(Type.EmptyTypes) != null);
+                    object defaultVal = canCreateDefault ? Activator.CreateInstance(listType) : null;
                     list.Add(defaultVal);
                     GUI.changed = true;
                 }
             }
 
-            if (!expanded) return;
+            if (!expanded) return value;
 
             DrawCollectionPagination(foldKey, list.Count, pageSize, out int pageStart, out int pageEnd);
 
@@ -1062,7 +1068,31 @@ namespace Nodin.Editor
 
             if (list.Count == 0)
             {
-                EditorGUILayout.LabelField("（空列表）", EditorStyles.centeredGreyMiniLabel);
+                var dropRect = GUILayoutUtility.GetRect(0f, 38f, GUILayout.ExpandWidth(true));
+                GUI.Box(dropRect, typeof(UnityEngine.Object).IsAssignableFrom(listType)
+                    ? "空列表：拖入资源文件以添加"
+                    : "（空列表）", EditorStyles.helpBox);
+
+                // 空集合也提供资源拖入入口。数组在方法结束时会由 List 副本重新写回。
+                var dragEvent = Event.current;
+                if (typeof(UnityEngine.Object).IsAssignableFrom(listType) && dropRect.Contains(dragEvent.mousePosition))
+                {
+                    if (dragEvent.type == EventType.DragUpdated)
+                    {
+                        DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+                        dragEvent.Use();
+                    }
+                    else if (dragEvent.type == EventType.DragPerform)
+                    {
+                        DragAndDrop.AcceptDrag();
+                        RecordUndo("Nodin: 拖入集合元素");
+                        foreach (var item in DragAndDrop.objectReferences)
+                            if (item != null && listType.IsInstanceOfType(item))
+                                list.Add(item);
+                        GUI.changed = true;
+                        dragEvent.Use();
+                    }
+                }
             }
 
             // ── 拖拽事件处理 ──
@@ -1321,6 +1351,11 @@ namespace Nodin.Editor
             EditorGUI.indentLevel--;
             EditorGUILayout.Space(2);
             EditorGUILayout.EndVertical();
+            if (!isArray) return value;
+
+            var array = Array.CreateInstance(listType, list.Count);
+            list.CopyTo(array, 0);
+            return array;
         }
 
         // ── Dictionary 绘制 ───────────────────────────────

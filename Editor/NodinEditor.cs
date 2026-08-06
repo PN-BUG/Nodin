@@ -172,7 +172,23 @@ namespace Nodin.Editor
         public override void OnInspectorGUI()
         {
             if (_hasNodinAttributes && _drawer != null)
+            {
+                // Nodin 接管 Inspector 后，Unity 默认的 MonoBehaviour 启用开关不会自动绘制。
+                // 直接操作组件，避免损坏/缺失组件导致 SerializedObject 创建失败。
+                if (target is MonoBehaviour behaviour)
+                {
+                    EditorGUI.BeginChangeCheck();
+                    bool enabled = EditorGUILayout.Toggle("启用", behaviour.enabled);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        Undo.RecordObject(behaviour, "切换组件启用状态");
+                        behaviour.enabled = enabled;
+                        EditorUtility.SetDirty(behaviour);
+                    }
+                    EditorGUILayout.Space(2);
+                }
                 _drawer.Draw();
+            }
             else
                 DrawDefaultInspector();
         }
@@ -407,7 +423,9 @@ namespace Nodin.Editor
         public override void OnInspectorGUI()
         {
             if (_hasNodinAttributes && _drawer != null)
+            {
                 _drawer.Draw();
+            }
             else
                 DrawDefaultInspector();
         }
