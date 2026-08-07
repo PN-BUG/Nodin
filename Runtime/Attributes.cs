@@ -126,7 +126,7 @@ namespace Nodin
     //  条件显示 & 启用
     // ══════════════════════════════════════════════════════════
 
-    /// <summary>当指定成员值等于目标值时显示字段（默认 true）</summary>
+    /// <summary>当指定成员值等于目标值时显示字段（默认 true）；也支持 <c>@member == Enum.Value</c> 表达式。</summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
     public class ShowIfAttribute : Attribute
     {

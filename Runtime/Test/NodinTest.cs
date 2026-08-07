@@ -12,6 +12,24 @@ public enum ColorOption { Red, Blue, Green }
 /// <summary>用于测试 EnumToggleButtons 的武器类型枚举</summary>
 public enum WeaponType { Sword, Axe, Bow, Staff }
 
+[System.Flags]
+public enum TestFeatureOptions
+{
+    None = 0,
+    OptionA = 1 << 0,
+    OptionB = 1 << 1,
+    OptionC = 1 << 2
+}
+
+[System.Flags]
+public enum TestCheckOptions
+{
+    None = 0,
+    Prefix = 1 << 0,
+    Suffix = 1 << 1,
+    Regex = 1 << 2
+}
+
 /// <summary>
 /// Nodin 所有标签效果测试脚本
 /// 挂载到任意 GameObject 即可在 Inspector 中查看效果
@@ -153,6 +171,39 @@ public class NodinTest : NodinMonoBehaviour
     [LabelText("粒子大小")]
     public float particleSize = 1.5f;
 
+    [ToggleGroup("特效开关")]
+    [LabelText("使用本地空间")]
+    public bool useLocalSpace = true;
+
+    [FoldoutGroup("ToggleGroup")]
+    [LabelText("Flags 下拉多选")]
+    public TestFeatureOptions selectedFeatures = TestFeatureOptions.OptionA | TestFeatureOptions.OptionC;
+
+    [FoldoutGroup("ToggleGroup")]
+    [ShowIf("@selectedFeatures & TestFeatureOptions.OptionB")]
+    [LabelText("Flags 条件字段")]
+    public string optionBOnlyField = "勾选 OptionB 后显示";
+
+    // ── Flags 下拉多选 + 条件显示示例 ──────────────────────
+    [FoldoutGroup("Flags 下拉多选示例")]
+    [LabelText("检查方式")]
+    public TestCheckOptions selectedCheckOptions = TestCheckOptions.Prefix | TestCheckOptions.Regex;
+
+    [FoldoutGroup("Flags 下拉多选示例")]
+    [ShowIf("@selectedCheckOptions & TestCheckOptions.Prefix")]
+    [LabelText("前缀")]
+    public string testPrefix = "item_";
+
+    [FoldoutGroup("Flags 下拉多选示例")]
+    [ShowIf("@selectedCheckOptions & TestCheckOptions.Suffix")]
+    [LabelText("后缀")]
+    public string testSuffix = "_icon";
+
+    [FoldoutGroup("Flags 下拉多选示例")]
+    [ShowIf("@selectedCheckOptions & TestCheckOptions.Regex")]
+    [LabelText("正则")]
+    public string testPattern = "^[a-z][a-z0-9_]*$";
+
     // ══════════════════════════════════════════════════════════
     //  8. HorizontalGroup — 水平排列
     // ══════════════════════════════════════════════════════════
@@ -201,6 +252,16 @@ public class NodinTest : NodinMonoBehaviour
     [ShowIf(nameof(colorOption), ColorOption.Green)]
     [LabelText("绿色专属字段")]
     public string greenOnlyField = "只有选 Green 时才显示";
+
+    [FoldoutGroup("条件显示")]
+    [ShowIf("@colorOption == ColorOption.Blue")]
+    [LabelText("表达式：蓝色专属字段")]
+    public string blueExpressionField = "仅在 ColorOption.Blue 时显示";
+
+    [FoldoutGroup("条件显示")]
+    [ShowIf("@colorOption != ColorOption.Red")]
+    [LabelText("表达式：非红色字段")]
+    public string nonRedExpressionField = "仅在 Blue 或 Green 时显示";
 
     // ══════════════════════════════════════════════════════════
     //  10. EnableIf / DisableIf — 条件启用/禁用

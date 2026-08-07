@@ -25,9 +25,11 @@
 - **`[Title]`** - 在字段上方显示标题文本（支持粗体/下划线样式）
 - **`[DisplayAsString]`** - 将字段值以纯文本形式显示（不可编辑）
 - **`[Required]`** - 标记 Object 引用字段为必填，空值时显示警告
+- **`[Flags]` 枚举** - 自动绘制为 Layer 风格的下拉多选框
 
 ### 条件显示 & 启用
 - **`[ShowIf]`** - 当指定成员值等于目标值时显示字段
+- **表达式条件** - `ShowIf` / `HideIf` / `EnableIf` / `DisableIf` 支持 `@member == Enum.Value`、`@member != Enum.Value` 和 `@flags & Flag.Value`
 - **`[HideIf]`** - 当指定成员值等于目标值时隐藏字段
 - **`[EnableIf]`** - 当指定成员值等于目标值时启用字段
 - **`[DisableIf]`** - 当指定成员值等于目标值时禁用字段
@@ -159,8 +161,15 @@ public class EnemyAI : MonoBehaviour
     [ShowIf("currentState", AIState.Attack)]
     [LabelText("攻击范围")]
     public float attackRange = 2f;
+
+    // 表达式写法：适合枚举条件，支持 == 和 !=。
+    [ShowIf("@currentState == AIState.Patrol")]
+    [LabelText("巡逻等待时间")]
+    public float patrolWaitTime = 1f;
 }
 ```
+
+> 条件表达式以 `@` 开头，支持 `==`、`!=` 和 Flags 位检查 `&`。右侧枚举值可写作 `枚举类型.枚举项`，例如 `@currentState != AIState.Idle` 或 `@features & FeatureOptions.Logging`。
 
 ### 3. 分组布局示例
 
@@ -541,6 +550,12 @@ A: 使用 `[ShowIf]` 特性，并指定条件字段或方法名：
 ```csharp
 [ShowIf("isEnabled")]
 public float value;
+```
+
+也可以使用表达式写法判断枚举值：
+```csharp
+[ShowIf("@state == State.Ready")]
+public float readyDelay;
 ```
 
 ### Q: 如何创建多级分组？

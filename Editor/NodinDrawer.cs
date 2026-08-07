@@ -46,6 +46,12 @@ namespace Nodin.Editor
 
         // ── 复用 GUIContent（避免每帧分配）──
         private static readonly GUIContent _cachedLabel = new GUIContent();
+        private static readonly GUIContent _cachedDisplayValue = new GUIContent();
+        private static GUIStyle _groupHeaderStyle;
+        private static int _groupHeaderStyleFontSize = int.MinValue;
+        private static Color _groupHeaderStyleColor;
+        private static GUIStyle _listGripStyle;
+        private static readonly GUIStyle[] _titleStyles = new GUIStyle[6];
 
         // ── 标签宽度：默认固定宽度，[LabelText(AutoWidth = true)] 时按文字像素自适应 ──
         // 实际值由 NodinSettings SO 提供，回退到硬编码默认值
@@ -78,11 +84,19 @@ namespace Nodin.Editor
         // ── Undo 目标（UnityEngine.Object 才能 RecordObject）──
         private readonly UnityEngine.Object _undoTarget;
 
+        // 顶层 Unity 对象的普通序列化字段通过 SerializedProperty 绘制，确保
+        // Prefab Override、Undo 和脏标记都走 Unity 的标准序列化管线。
+        private readonly SerializedObject _serializedObject;
+        private readonly Dictionary<string, SerializedProperty> _serializedPropertyCache = new();
+        private readonly HashSet<string> _missingSerializedProperties = new();
+
         public NodinDrawer(object target, UnityEngine.Object undoTarget = null)
         {
             _target = target;
             _undoTarget = undoTarget ?? (target as UnityEngine.Object);
             _type = target.GetType();
+            if (target is UnityEngine.Object unityObject)
+                _serializedObject = new SerializedObject(unityObject);
             // ── 收集字段并缓存所有 Attribute ──
             var fields = _type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(f => f.IsPublic
@@ -98,9 +112,17 @@ namespace Nodin.Editor
 
             _fieldMetas = new FieldMeta[fields.Length + showProps.Length];
             for (int i = 0; i < fields.Length; i++)
-                _fieldMetas[i] = FieldMeta.Build(fields[i]);
+            {
+                var meta = FieldMeta.Build(fields[i]);
+                meta.BindCallbacks(_type);
+                _fieldMetas[i] = meta;
+            }
             for (int i = 0; i < showProps.Length; i++)
-                _fieldMetas[fields.Length + i] = FieldMeta.BuildFromProperty(showProps[i]);
+            {
+                var meta = FieldMeta.BuildFromProperty(showProps[i]);
+                meta.BindCallbacks(_type);
+                _fieldMetas[fields.Length + i] = meta;
+            }
 
             // ── 收集方法并缓存所有 Attribute ──
             var methods = _type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
@@ -187,6 +209,8 @@ namespace Nodin.Editor
 
         public void Draw()
         {
+            _serializedObject?.UpdateIfRequiredOrScript();
+
             // ── Dictionary 恢复序列化备份 ──
             DictSerializationHelper.RestoreAll(_target, _dictFields);
 
@@ -381,20 +405,14 @@ namespace Nodin.Editor
                     toggleField.Field.SetValue(_target, newToggle);
                     if (_target is UnityEngine.Object unityObj)
                     {
-                        EditorUtility.SetDirty(unityObj);
-                        AssetDatabase.SaveAssetIfDirty(unityObj);
+                        MarkDirty(unityObj);
                     }
                 }
             }
 
             // 标题文字（点击文字也能切换 toggle）
             var labelRect = new Rect(rect.x + 48, rect.y, rect.width - 48, rect.height);
-            var toggleHeaderStyle = new GUIStyle(EditorStyles.boldLabel)
-            {
-                fontSize = NodinSettings.GroupHeaderFontSize,
-                normal = { textColor = NodinSettings.LabelColor }
-            };
-            EditorGUI.LabelField(labelRect, groupName, toggleHeaderStyle);
+            EditorGUI.LabelField(labelRect, groupName, GetGroupHeaderStyle());
 
             if (Event.current.type == EventType.MouseDown && labelRect.Contains(Event.current.mousePosition))
             {
@@ -405,8 +423,7 @@ namespace Nodin.Editor
                     toggleField.Field.SetValue(_target, _toggleGroupStates[groupName]);
                     if (_target is UnityEngine.Object unityObj2)
                     {
-                        EditorUtility.SetDirty(unityObj2);
-                        AssetDatabase.SaveAssetIfDirty(unityObj2);
+                        MarkDirty(unityObj2);
                     }
                 }
                 Event.current.Use();
@@ -421,7 +438,8 @@ namespace Nodin.Editor
                 foreach (var fm in _fieldMetas)
                 {
                     if (fm.ToggleGroup?.GroupName != groupName) continue;
-                    if (fm.FieldType == typeof(bool)) continue; // 跳过 toggle 字段本身
+                    // 仅跳过作为分组开关的第一个 bool 字段；组内其他 bool 是正常配置项，必须绘制。
+                    if (fm == toggleField) continue;
                     if (!ShouldShow(fm)) continue;
                     DrawField(fm);
                 }
@@ -465,13 +483,8 @@ namespace Nodin.Editor
             GUI.color = oldColor;
 
             // 标题文字
-            var headerStyle = new GUIStyle(EditorStyles.boldLabel)
-            {
-                fontSize = NodinSettings.GroupHeaderFontSize,
-                normal = { textColor = NodinSettings.LabelColor }
-            };
             var labelRect = new Rect(rect.x + 26, rect.y, rect.width - 26 - (rightReservedWidth > 0 ? rightReservedWidth : 0), rect.height);
-            EditorGUI.LabelField(labelRect, title, headerStyle);
+            EditorGUI.LabelField(labelRect, title, GetGroupHeaderStyle());
 
             // 点击检测（整个标题区域，排除右侧按钮区域）
             var clickRect = rightReservedWidth > 0
@@ -608,6 +621,11 @@ namespace Nodin.Editor
         {
             if (string.IsNullOrEmpty(memberName)) return true;
 
+            // 表达式条件：支持 [ShowIf("@mode == MyEnum.Value")] 这类更直观的写法。
+            // 先保留原有的成员名模式，确保现有 [ShowIf(nameof(member), value)] 不受影响。
+            if (TryEvaluateComparisonExpression(memberName, out bool expressionResult))
+                return expressionResult.Equals(expectedValue);
+
             var field = _type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             if (field != null)
             {
@@ -650,7 +668,9 @@ namespace Nodin.Editor
                 var strValue = displayValue?.ToString() ?? "null";
                 _cachedLabel.text = label;
                 _cachedLabel.tooltip = fm.PropertyTooltip?.Tooltip ?? "";
-                EditorGUILayout.LabelField(_cachedLabel, new GUIContent(strValue));
+                _cachedDisplayValue.text = strValue;
+                _cachedDisplayValue.tooltip = null;
+                EditorGUILayout.LabelField(_cachedLabel, _cachedDisplayValue);
                 DrawRequiredWarning(fm, displayValue);
                 GUI.enabled = prevEnabled;
                 return;
@@ -662,6 +682,14 @@ namespace Nodin.Editor
             {
                 bool autoW = fm.LabelText != null && fm.LabelText.AutoWidth;
                 EditorGUIUtility.labelWidth = autoW ? CalcLabelWidth(label) : NodinSettings.LabelWidth;
+            }
+
+            if (TryDrawSerializedField(fm, label))
+            {
+                DrawRequiredWarning(fm, fm.GetValue(_target));
+                EditorGUIUtility.labelWidth = prevLabelWidth;
+                GUI.enabled = prevEnabled;
+                return;
             }
 
             EditorGUI.BeginChangeCheck();
@@ -706,8 +734,7 @@ namespace Nodin.Editor
                 // 标记已修改并立即保存
                 if (_target is UnityEngine.Object unityObj)
                 {
-                    EditorUtility.SetDirty(unityObj);
-                    AssetDatabase.SaveAssetIfDirty(unityObj);
+                    MarkDirty(unityObj);
                 }
             }
 
@@ -715,6 +742,162 @@ namespace Nodin.Editor
 
             EditorGUIUtility.labelWidth = prevLabelWidth;
             GUI.enabled = prevEnabled;
+        }
+
+        private bool TryDrawSerializedField(FieldMeta fm, string label)
+        {
+            if (!CanDrawWithSerializedProperty(fm))
+                return false;
+
+            var property = GetSerializedProperty(fm);
+            if (property == null)
+                return false;
+
+            _cachedLabel.text = label;
+            _cachedLabel.tooltip = fm.PropertyTooltip?.Tooltip ?? string.Empty;
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(property, fm.HideLabel != null ? GUIContent.none : _cachedLabel, false);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _serializedObject.ApplyModifiedProperties();
+                InvokeOnValueChanged(fm);
+                _serializedObject.UpdateIfRequiredOrScript();
+            }
+
+            return true;
+        }
+
+        private bool TryEvaluateComparisonExpression(string expression, out bool result)
+        {
+            result = false;
+            if (!expression.StartsWith("@", StringComparison.Ordinal)) return false;
+
+            string body = expression.Substring(1).Trim();
+            int flagOperatorIndex = body.IndexOf('&');
+            if (flagOperatorIndex >= 0)
+            {
+                string flagMemberName = body.Substring(0, flagOperatorIndex).Trim();
+                string flagText = body.Substring(flagOperatorIndex + 1).Trim();
+                object flagActual = GetConditionMemberValue(flagMemberName);
+                if (!string.IsNullOrEmpty(flagMemberName) && !string.IsNullOrEmpty(flagText) && flagActual != null && flagActual.GetType().IsEnum)
+                {
+                    object flag = ParseExpressionValue(flagText, flagActual.GetType());
+                    if (flag.GetType() == flagActual.GetType())
+                    {
+                        result = (Convert.ToUInt64(flagActual) & Convert.ToUInt64(flag)) != 0;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            int operatorIndex = body.IndexOf("==", StringComparison.Ordinal);
+            bool isNotEqual = false;
+            if (operatorIndex < 0)
+            {
+                operatorIndex = body.IndexOf("!=", StringComparison.Ordinal);
+                isNotEqual = operatorIndex >= 0;
+            }
+            if (operatorIndex < 0) return false;
+
+            string memberName = body.Substring(0, operatorIndex).Trim();
+            string expectedText = body.Substring(operatorIndex + 2).Trim();
+            if (string.IsNullOrEmpty(memberName) || string.IsNullOrEmpty(expectedText)) return false;
+
+            object actual = GetConditionMemberValue(memberName);
+            if (actual == null) return false;
+
+            object expected = ParseExpressionValue(expectedText, actual.GetType());
+            bool equals = actual.Equals(expected);
+            result = isNotEqual ? !equals : equals;
+            return true;
+        }
+
+        private object GetConditionMemberValue(string memberName)
+        {
+            var field = _type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (field != null) return field.GetValue(_target);
+
+            var property = _type.GetProperty(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (property != null) return property.GetValue(_target);
+
+            return null;
+        }
+
+        private static object ParseExpressionValue(string text, Type valueType)
+        {
+            text = text.Trim().Trim('"', '\'');
+            if (valueType.IsEnum)
+            {
+                int dotIndex = text.LastIndexOf('.');
+                string enumName = dotIndex >= 0 ? text.Substring(dotIndex + 1) : text;
+                return Enum.TryParse(valueType, enumName, out object enumValue) ? enumValue : text;
+            }
+
+            if (valueType == typeof(bool) && bool.TryParse(text, out bool boolValue)) return boolValue;
+            if (valueType == typeof(int) && int.TryParse(text, out int intValue)) return intValue;
+            if (valueType == typeof(float) && float.TryParse(text, out float floatValue)) return floatValue;
+            return text;
+        }
+
+        private SerializedProperty GetSerializedProperty(FieldMeta fm)
+        {
+            string propertyPath = fm.FieldName;
+            if (_serializedPropertyCache.TryGetValue(propertyPath, out var property))
+                return property;
+            if (_missingSerializedProperties.Contains(propertyPath))
+                return null;
+
+            property = _serializedObject.FindProperty(propertyPath);
+            if (property == null)
+            {
+                _missingSerializedProperties.Add(propertyPath);
+                return null;
+            }
+
+            _serializedPropertyCache[propertyPath] = property;
+            return property;
+        }
+
+        private bool CanDrawWithSerializedProperty(FieldMeta fm)
+        {
+            if (_serializedObject == null || !fm.HasSerializableField || fm.Property != null)
+                return false;
+
+            // 保留 Nodin 的专用 Drawer 和复杂容器反射路径，避免改变现有 Inspector 体验。
+            if (fm.FolderPath != null || fm.MultiLine != null || fm.ValueDropdown != null
+                || fm.MinValue != null || fm.MaxValue != null || fm.Range != null
+                || fm.DisplayAsString != null)
+                return false;
+
+            var type = fm.FieldType;
+            if (type.IsArray || type.IsGenericType
+                || type.GetCustomAttribute<InlinePropertyAttribute>() != null
+                || (!type.IsValueType && type.GetCustomAttribute<SerializableAttribute>() != null))
+                return false;
+
+            return IsSimpleUnitySerializedType(type);
+        }
+
+        private static bool IsSimpleUnitySerializedType(Type type)
+        {
+            return type.IsEnum
+                || type.IsPrimitive
+                || type == typeof(string)
+                || type == typeof(Vector2)
+                || type == typeof(Vector3)
+                || type == typeof(Vector4)
+                || type == typeof(Vector2Int)
+                || type == typeof(Vector3Int)
+                || type == typeof(Color)
+                || type == typeof(Rect)
+                || type == typeof(RectInt)
+                || type == typeof(Bounds)
+                || type == typeof(BoundsInt)
+                || type == typeof(Quaternion)
+                || type == typeof(LayerMask)
+                || type == typeof(AnimationCurve)
+                || typeof(UnityEngine.Object).IsAssignableFrom(type);
         }
 
         /// <summary>
@@ -742,14 +925,7 @@ namespace Nodin.Editor
 
             EditorGUILayout.Space(2);
 
-            var style = fm.Title.Bold ? EditorStyles.boldLabel : EditorStyles.label;
-            var alignment = fm.Title.Alignment switch
-            {
-                TitleAlignment.Center => TextAnchor.MiddleCenter,
-                TitleAlignment.Right => TextAnchor.UpperRight,
-                _ => TextAnchor.UpperLeft,
-            };
-            style = new GUIStyle(style) { alignment = alignment };
+            var style = GetTitleStyle(fm.Title.Bold, fm.Title.Alignment);
 
             if (!string.IsNullOrEmpty(subtitle))
             {
@@ -769,6 +945,58 @@ namespace Nodin.Editor
                 EditorGUI.DrawRect(rect, new Color(0.5f, 0.5f, 0.5f, 0.3f));
                 EditorGUILayout.Space(1);
             }
+        }
+
+        private static GUIStyle GetGroupHeaderStyle()
+        {
+            int fontSize = NodinSettings.GroupHeaderFontSize;
+            Color textColor = NodinSettings.LabelColor;
+            if (_groupHeaderStyle == null
+                || _groupHeaderStyleFontSize != fontSize
+                || _groupHeaderStyleColor != textColor)
+            {
+                _groupHeaderStyle = new GUIStyle(EditorStyles.boldLabel)
+                {
+                    fontSize = fontSize,
+                    normal = { textColor = textColor }
+                };
+                _groupHeaderStyleFontSize = fontSize;
+                _groupHeaderStyleColor = textColor;
+            }
+
+            return _groupHeaderStyle;
+        }
+
+        private static GUIStyle GetTitleStyle(bool bold, TitleAlignment alignment)
+        {
+            int index = (bold ? 3 : 0) + (int)alignment;
+            var style = _titleStyles[index];
+            if (style != null)
+                return style;
+
+            TextAnchor textAlignment = alignment switch
+            {
+                TitleAlignment.Center => TextAnchor.MiddleCenter,
+                TitleAlignment.Right => TextAnchor.UpperRight,
+                _ => TextAnchor.UpperLeft,
+            };
+            style = new GUIStyle(bold ? EditorStyles.boldLabel : EditorStyles.label)
+            {
+                alignment = textAlignment
+            };
+            _titleStyles[index] = style;
+            return style;
+        }
+
+        private static GUIStyle GetListGripStyle()
+        {
+            return _listGripStyle ??= new GUIStyle(EditorStyles.miniLabel)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                fontStyle = FontStyle.Bold,
+                fontSize = 12,
+                padding = new RectOffset(0, 0, 0, 0)
+            };
         }
 
         /// <summary>Required 校验：值为空时显示警告</summary>
@@ -950,7 +1178,13 @@ namespace Nodin.Editor
             if (type == typeof(Vector4)) return EditorGUILayout.Vector4Field(hideLabel ? "" : label, (Vector4)value);
             if (type == typeof(Color)) return EditorGUILayout.ColorField(hideLabel ? GUIContent.none : _cachedLabel, (Color)value);
             if (type == typeof(Rect)) return EditorGUILayout.RectField(hideLabel ? GUIContent.none : _cachedLabel, (Rect)value);
-            if (type.IsEnum) return EditorGUILayout.EnumPopup(hideLabel ? GUIContent.none : _cachedLabel, (Enum)value);
+            if (type.IsEnum)
+            {
+                var enumValue = (Enum)value;
+                return type.IsDefined(typeof(FlagsAttribute), false)
+                    ? EditorGUILayout.EnumFlagsField(hideLabel ? GUIContent.none : _cachedLabel, enumValue)
+                    : EditorGUILayout.EnumPopup(hideLabel ? GUIContent.none : _cachedLabel, enumValue);
+            }
             if (typeof(UnityEngine.Object).IsAssignableFrom(type))
                 return EditorGUILayout.ObjectField(hideLabel ? GUIContent.none : _cachedLabel, (UnityEngine.Object)value, type, true);
 
@@ -1171,14 +1405,7 @@ namespace Nodin.Editor
                 // ── 拖拽把手（≡ 视觉提示，不是按钮）──
                 if (canDrag)
                 {
-                    var gripStyle = new GUIStyle(EditorStyles.miniLabel)
-                    {
-                        alignment = TextAnchor.MiddleCenter,
-                        fontStyle = FontStyle.Bold,
-                        fontSize = 12,
-                        padding = new RectOffset(0, 0, 0, 0)
-                    };
-                    GUILayout.Label("≡", gripStyle, GUILayout.Width(16), GUILayout.Height(16));
+                    GUILayout.Label("≡", GetListGripStyle(), GUILayout.Width(16), GUILayout.Height(16));
                 }
 
                 // ── 字段值绘制 ──
@@ -1693,11 +1920,15 @@ namespace Nodin.Editor
                 Undo.RecordObject(_undoTarget, name);
         }
 
+        private static void MarkDirty(UnityEngine.Object target)
+        {
+            EditorUtility.SetDirty(target);
+        }
+
         private void InvokeOnValueChanged(FieldMeta fm)
         {
             if (fm.OnValueChanged == null) return;
-            var method = _type.GetMethod(fm.OnValueChanged.MethodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            method?.Invoke(_target, null);
+            fm.OnValueChangedMethod?.Invoke(_target, null);
 
             // OnValueChanged 后清除所有 ValueDropdown 选项缓存，确保嵌套 [Serializable] 类中
             // 依赖字段的下拉列表能正确刷新。
@@ -1730,6 +1961,7 @@ namespace Nodin.Editor
             public ValueDropdownAttribute ValueDropdown;
             public InfoBoxAttribute[] InfoBoxes;
             public OnValueChangedAttribute OnValueChanged;
+            public MethodInfo OnValueChangedMethod;
             public MinValueAttribute MinValue;
             public MaxValueAttribute MaxValue;
             public RangeAttribute Range;
@@ -1802,6 +2034,16 @@ namespace Nodin.Editor
                 Title = member.GetCustomAttribute<TitleAttribute>();
                 Required = member.GetCustomAttribute<RequiredAttribute>();
                 DisplayAsString = member.GetCustomAttribute<DisplayAsStringAttribute>();
+            }
+
+            public void BindCallbacks(Type targetType)
+            {
+                if (OnValueChanged != null)
+                {
+                    OnValueChangedMethod = targetType.GetMethod(
+                        OnValueChanged.MethodName,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                }
             }
 
             public static FieldMeta Build(FieldInfo field)
