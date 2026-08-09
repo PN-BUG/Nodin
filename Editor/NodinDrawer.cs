@@ -229,17 +229,8 @@ namespace Nodin.Editor
                 EditorGUILayout.ObjectField("Script", monoScript, typeof(MonoScript), false);
                 EditorGUI.EndDisabledGroup();
             }
-            else if (_type.GetCustomAttribute<SerializableAttribute>() != null)
-            {
-                // [Serializable] 普通类：通过 AssetDatabase 查找对应脚本并绘制
-                var monoScript = FindMonoScriptForType(_type);
-                if (monoScript != null)
-                {
-                    EditorGUI.BeginDisabledGroup(true);
-                    EditorGUILayout.ObjectField("Script", monoScript, typeof(MonoScript), false);
-                    EditorGUI.EndDisabledGroup();
-                }
-            }
+            // 普通 [Serializable] 数据对象不显示 Script 引用。
+            // 它不是可独立挂载的 Unity 对象，嵌套列表中重复显示只会占用大量纵向空间。
 
             DrawUngroupedFields();
 
@@ -1211,7 +1202,12 @@ namespace Nodin.Editor
                 string foldKey = $"__inline_{fm.FieldName}_{type.FullName}";
                 if (!_foldoutStates.ContainsKey(foldKey))
                     _foldoutStates[foldKey] = true;
+                // ReadOnly 只禁止修改数据，不应阻止嵌套对象折叠。
+                // 列表标题已有相同处理；内联 Serializable 字段也必须临时恢复 GUI 交互。
+                bool previousGuiEnabled = GUI.enabled;
+                GUI.enabled = true;
                 DrawGroupHeader(label, _foldoutStates[foldKey], isSubGroup: false, out var inlineToggled);
+                GUI.enabled = previousGuiEnabled;
                 if (inlineToggled) _foldoutStates[foldKey] = !_foldoutStates[foldKey];
 
                 if (_foldoutStates[foldKey])
@@ -1421,6 +1417,26 @@ namespace Nodin.Editor
                 bool valueChanged = false;
                 EditorGUI.BeginChangeCheck();
 
+                // 可序列化复杂元素内容通常很长（例如单条对话数据），为每个元素提供独立折叠。
+                // 默认收起，基础类型和 Unity Object 列表仍保持原有紧凑绘制。
+                bool itemExpanded = true;
+                if (inlineItems && itemValue != null)
+                {
+                    string itemFoldKey = $"__list_item_{foldKey}_{i}";
+                    if (!_foldoutStates.ContainsKey(itemFoldKey))
+                        _foldoutStates[itemFoldKey] = false;
+
+                    bool previousItemGuiEnabled = GUI.enabled;
+                    GUI.enabled = true;
+                    itemExpanded = EditorGUILayout.Foldout(
+                        _foldoutStates[itemFoldKey],
+                        GetListItemFoldoutTitle(itemValue, i),
+                        true,
+                        EditorStyles.foldout);
+                    GUI.enabled = previousItemGuiEnabled;
+                    _foldoutStates[itemFoldKey] = itemExpanded;
+                }
+
                 if (listType == typeof(bool))
                     list[i] = EditorGUILayout.Toggle((bool)itemValue);
                 else if (listType == typeof(int))
@@ -1441,18 +1457,7 @@ namespace Nodin.Editor
                     list[i] = EditorGUILayout.ObjectField((UnityEngine.Object)itemValue, listType, true);
                 else if (inlineItems && itemValue != null)
                 {
-                    // [InlineProperty] 内联绘制：将类字段直接展开在列表行中
-                    EditorGUILayout.BeginVertical();
-                    // 保留元素 Drawer，避免每次 Repaint 都重置内部 List/Foldout 状态。
-                    var drawerKey = $"__list_{foldKey}_{i}";
-                    if (!_inlineDrawerCache.TryGetValue(drawerKey, out var inlineDrawer)
-                        || inlineDrawer.Target != itemValue)
-                    {
-                        inlineDrawer = new NodinDrawer(itemValue, _undoTarget);
-                        _inlineDrawerCache[drawerKey] = inlineDrawer;
-                    }
-                    inlineDrawer.Draw();
-                    EditorGUILayout.EndVertical();
+                    // 复杂元素的正文改在标题行结束后全宽绘制；这里仅保留折叠标题。
                 }
                 else
                     EditorGUILayout.LabelField(itemValue?.ToString() ?? "null");
@@ -1508,6 +1513,21 @@ namespace Nodin.Editor
                 if (skipRemaining) continue;
 
                 EditorGUILayout.EndHorizontal();
+
+                if (inlineItems && itemValue != null && itemExpanded)
+                {
+                    EditorGUILayout.Space(2);
+                    // 保留元素 Drawer，避免每次 Repaint 都重置内部 List/Foldout 状态。
+                    var drawerKey = $"__list_{foldKey}_{i}";
+                    if (!_inlineDrawerCache.TryGetValue(drawerKey, out var inlineDrawer)
+                        || inlineDrawer.Target != itemValue)
+                    {
+                        inlineDrawer = new NodinDrawer(itemValue, _undoTarget);
+                        _inlineDrawerCache[drawerKey] = inlineDrawer;
+                    }
+                    inlineDrawer.Draw();
+                }
+
                 EditorGUILayout.EndVertical();
 
                 // 记录整行 Rect（仅拖拽中的列表，防止其它列表覆盖）
@@ -1583,6 +1603,35 @@ namespace Nodin.Editor
             var array = Array.CreateInstance(listType, list.Count);
             list.CopyTo(array, 0);
             return array;
+        }
+
+        private static string GetListItemFoldoutTitle(object itemValue, int index)
+        {
+            string prefix = $"元素 {index}";
+            if (itemValue == null)
+                return prefix;
+
+            Type itemType = itemValue.GetType();
+            string[] preferredNames = { "nodeName", "picName", "displayName", "name", "id", "Id" };
+            for (int i = 0; i < preferredNames.Length; i++)
+            {
+                FieldInfo field = itemType.GetField(
+                    preferredNames[i],
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                object value = field?.GetValue(itemValue);
+                if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
+                    return prefix + " · " + value;
+
+                PropertyInfo property = itemType.GetProperty(
+                    preferredNames[i],
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (property != null && property.GetIndexParameters().Length == 0)
+                    value = property.GetValue(itemValue);
+                if (value != null && !string.IsNullOrWhiteSpace(value.ToString()))
+                    return prefix + " · " + value;
+            }
+
+            return prefix;
         }
 
         // ── Dictionary 绘制 ───────────────────────────────
