@@ -262,19 +262,16 @@ namespace Nodin.Editor
             // 同名 ToggleGroup 已包含子分组，跳过避免重复
             if (_toggleGroupStates.ContainsKey(groupName)) return;
 
-            if (!_foldoutStates.ContainsKey(groupName))
-            {
-                var firstField = Array.Find(_fieldMetas, fm => fm.TopGroupName == groupName);
-                var expanded = firstField?.FoldoutGroup?.Expanded ?? false;
-                _foldoutStates[groupName] = expanded;
-            }
+            var firstField = Array.Find(_fieldMetas, fm => fm.TopGroupName == groupName);
+            bool groupExpanded = GetFoldoutState(groupName, firstField?.FoldoutGroup?.Expanded ?? false);
 
             EditorGUILayout.Space(3);
 
-            DrawGroupHeader(groupName, _foldoutStates[groupName], isSubGroup: false, out var toggled);
-            if (toggled) _foldoutStates[groupName] = !_foldoutStates[groupName];
+            DrawGroupHeader(groupName, groupExpanded, isSubGroup: false, out var toggled);
+            if (toggled) groupExpanded = !groupExpanded;
+            SetFoldoutState(groupName, groupExpanded);
 
-            if (_foldoutStates[groupName])
+            if (groupExpanded)
             {
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                 EditorGUILayout.Space(2);
@@ -303,18 +300,15 @@ namespace Nodin.Editor
             var shortName = fullGroupName.Substring(parentGroup.Length + 1);
             var stateKey = fullGroupName;
 
-            if (!_foldoutStates.ContainsKey(stateKey))
-            {
-                var firstField = Array.Find(_fieldMetas, fm => fm.FoldoutGroup?.GroupName == fullGroupName);
-                var expanded = firstField?.FoldoutGroup?.Expanded ?? true;
-                _foldoutStates[stateKey] = expanded;
-            }
+            var firstField = Array.Find(_fieldMetas, fm => fm.FoldoutGroup?.GroupName == fullGroupName);
+            bool expanded = GetFoldoutState(stateKey, firstField?.FoldoutGroup?.Expanded ?? true);
 
             EditorGUILayout.Space(2);
-            DrawGroupHeader(shortName, _foldoutStates[stateKey], isSubGroup: true, out var toggled);
-            if (toggled) _foldoutStates[stateKey] = !_foldoutStates[stateKey];
+            DrawGroupHeader(shortName, expanded, isSubGroup: true, out var toggled);
+            if (toggled) expanded = !expanded;
+            SetFoldoutState(stateKey, expanded);
 
-            if (_foldoutStates[stateKey])
+            if (expanded)
             {
                 EditorGUI.indentLevel++;
                 DrawFieldsInGroup(fullGroupName);
@@ -355,7 +349,7 @@ namespace Nodin.Editor
             if (!_toggleGroupStates.ContainsKey(groupName) && toggleField != null)
                 _toggleGroupStates[groupName] = (bool)toggleField.GetValue(_target);
             if (!_toggleGroupExpanded.ContainsKey(groupName))
-                _toggleGroupExpanded[groupName] = true;
+                _toggleGroupExpanded[groupName] = GetFoldoutState($"__toggle_{groupName}", true);
 
             EditorGUILayout.Space(3);
 
@@ -379,6 +373,7 @@ namespace Nodin.Editor
             if (Event.current.type == EventType.MouseDown && arrowRect.Contains(Event.current.mousePosition))
             {
                 _toggleGroupExpanded[groupName] = !_toggleGroupExpanded[groupName];
+                SetFoldoutState($"__toggle_{groupName}", _toggleGroupExpanded[groupName]);
                 Event.current.Use();
             }
 
@@ -733,6 +728,32 @@ namespace Nodin.Editor
 
             EditorGUIUtility.labelWidth = prevLabelWidth;
             GUI.enabled = prevEnabled;
+        }
+
+        private bool GetFoldoutState(string foldoutKey, bool defaultValue)
+        {
+            if (_foldoutStates.TryGetValue(foldoutKey, out bool value))
+            {
+                return value;
+            }
+
+            value = EditorPrefs.GetBool(GetFoldoutPrefsKey(foldoutKey), defaultValue);
+            _foldoutStates[foldoutKey] = value;
+            return value;
+        }
+
+        private void SetFoldoutState(string foldoutKey, bool value)
+        {
+            _foldoutStates[foldoutKey] = value;
+            EditorPrefs.SetBool(GetFoldoutPrefsKey(foldoutKey), value);
+        }
+
+        private string GetFoldoutPrefsKey(string foldoutKey)
+        {
+            string targetKey = _undoTarget != null
+                ? GlobalObjectId.GetGlobalObjectIdSlow(_undoTarget).ToString()
+                : _type.AssemblyQualifiedName;
+            return $"Nodin.Foldout.{targetKey}.{foldoutKey}";
         }
 
         private bool TryDrawSerializedField(FieldMeta fm, string label)
@@ -1200,17 +1221,17 @@ namespace Nodin.Editor
             {
                 // 折叠头部
                 string foldKey = $"__inline_{fm.FieldName}_{type.FullName}";
-                if (!_foldoutStates.ContainsKey(foldKey))
-                    _foldoutStates[foldKey] = true;
+                bool inlineExpanded = GetFoldoutState(foldKey, true);
                 // ReadOnly 只禁止修改数据，不应阻止嵌套对象折叠。
                 // 列表标题已有相同处理；内联 Serializable 字段也必须临时恢复 GUI 交互。
                 bool previousGuiEnabled = GUI.enabled;
                 GUI.enabled = true;
-                DrawGroupHeader(label, _foldoutStates[foldKey], isSubGroup: false, out var inlineToggled);
+                DrawGroupHeader(label, inlineExpanded, isSubGroup: false, out var inlineToggled);
                 GUI.enabled = previousGuiEnabled;
-                if (inlineToggled) _foldoutStates[foldKey] = !_foldoutStates[foldKey];
+                if (inlineToggled) inlineExpanded = !inlineExpanded;
+                SetFoldoutState(foldKey, inlineExpanded);
 
-                if (_foldoutStates[foldKey])
+                if (inlineExpanded)
                 {
                     EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                     EditorGUILayout.Space(2);
@@ -1242,9 +1263,17 @@ namespace Nodin.Editor
             int pageSize = settings?.NumberOfItemsPerPage > 0
                 ? settings.NumberOfItemsPerPage
                 : NodinSettings.CollectionItemsPerPage;
-            if (value == null) return value;
             bool isArray = type.IsArray;
             var listType = isArray ? type.GetElementType() : type.GetGenericArguments()[0];
+
+            // 未初始化的数组/List 也必须绘制空集合和拖放区域，否则用户没有入口添加对象。
+            if (value == null)
+            {
+                value = isArray
+                    ? Array.CreateInstance(listType, 0)
+                    : Activator.CreateInstance(type);
+            }
+
             bool inlineItems = listType.GetCustomAttribute<InlinePropertyAttribute>() != null
                 || listType.GetCustomAttribute<SerializableAttribute>() != null;
             var list = isArray
@@ -1253,9 +1282,7 @@ namespace Nodin.Editor
 
             // ── 折叠头部（复用分组标题样式）──
             string foldKey = $"__list_{label}_{type.FullName}";
-            if (!_foldoutStates.ContainsKey(foldKey))
-                _foldoutStates[foldKey] = false;
-            bool expanded = _foldoutStates[foldKey];
+            bool expanded = GetFoldoutState(foldKey, list.Count == 0);
 
             // ReadOnly 应只禁止数据编辑，折叠状态仍应可操作。
             // DrawField 会在 ReadOnly 字段外层禁用 GUI，因此这里临时恢复交互。
@@ -1265,9 +1292,9 @@ namespace Nodin.Editor
             GUI.enabled = previousGuiEnabled;
             if (toggled)
             {
-                _foldoutStates[foldKey] = !expanded;
                 expanded = !expanded;
             }
+            SetFoldoutState(foldKey, expanded);
 
             // 右上角 + 按钮（覆盖在标题行右侧）
             if (canAdd)
@@ -1298,28 +1325,44 @@ namespace Nodin.Editor
 
             if (list.Count == 0)
             {
-                var dropRect = GUILayoutUtility.GetRect(0f, 38f, GUILayout.ExpandWidth(true));
-                GUI.Box(dropRect, typeof(UnityEngine.Object).IsAssignableFrom(listType)
-                    ? "空列表：拖入资源文件以添加"
-                    : "（空列表）", EditorStyles.helpBox);
+                EditorGUILayout.LabelField("（空列表）", EditorStyles.centeredGreyMiniLabel);
+            }
 
-                // 空集合也提供资源拖入入口。数组在方法结束时会由 List 副本重新写回。
-                var dragEvent = Event.current;
-                if (typeof(UnityEngine.Object).IsAssignableFrom(listType) && dropRect.Contains(dragEvent.mousePosition))
+            // 所有对象列表（无论是否已有元素）均提供统一的追加拖放区域。
+            if (typeof(UnityEngine.Object).IsAssignableFrom(listType))
+            {
+                Rect dropRect = GUILayoutUtility.GetRect(0f, 32f, GUILayout.ExpandWidth(true));
+                GUI.Box(dropRect, "拖入对象以追加（支持多选）", EditorStyles.helpBox);
+
+                Event dragEvent = Event.current;
+                if (dropRect.Contains(dragEvent.mousePosition))
                 {
                     if (dragEvent.type == EventType.DragUpdated)
                     {
-                        DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+                        DragAndDrop.visualMode = HasCompatibleDraggedObject(listType)
+                            ? DragAndDropVisualMode.Copy
+                            : DragAndDropVisualMode.Rejected;
                         dragEvent.Use();
                     }
                     else if (dragEvent.type == EventType.DragPerform)
                     {
-                        DragAndDrop.AcceptDrag();
-                        RecordUndo("Nodin: 拖入集合元素");
-                        foreach (var item in DragAndDrop.objectReferences)
-                            if (item != null && listType.IsInstanceOfType(item))
-                                list.Add(item);
-                        GUI.changed = true;
+                        int addedCount = 0;
+                        foreach (UnityEngine.Object item in DragAndDrop.objectReferences)
+                        {
+                            if (TryGetDraggedListItem(item, listType, out UnityEngine.Object listItem))
+                            {
+                                list.Add(listItem);
+                                addedCount++;
+                            }
+                        }
+
+                        if (addedCount > 0)
+                        {
+                            DragAndDrop.AcceptDrag();
+                            RecordUndo("Nodin: 拖入集合元素");
+                            GUI.changed = true;
+                        }
+
                         dragEvent.Use();
                     }
                 }
@@ -1423,18 +1466,17 @@ namespace Nodin.Editor
                 if (inlineItems && itemValue != null)
                 {
                     string itemFoldKey = $"__list_item_{foldKey}_{i}";
-                    if (!_foldoutStates.ContainsKey(itemFoldKey))
-                        _foldoutStates[itemFoldKey] = false;
+                    itemExpanded = GetFoldoutState(itemFoldKey, false);
 
                     bool previousItemGuiEnabled = GUI.enabled;
                     GUI.enabled = true;
                     itemExpanded = EditorGUILayout.Foldout(
-                        _foldoutStates[itemFoldKey],
+                        itemExpanded,
                         GetListItemFoldoutTitle(itemValue, i),
                         true,
                         EditorStyles.foldout);
                     GUI.enabled = previousItemGuiEnabled;
-                    _foldoutStates[itemFoldKey] = itemExpanded;
+                    SetFoldoutState(itemFoldKey, itemExpanded);
                 }
 
                 if (listType == typeof(bool))
@@ -1605,6 +1647,54 @@ namespace Nodin.Editor
             return array;
         }
 
+        private static bool HasCompatibleDraggedObject(Type listType)
+        {
+            foreach (UnityEngine.Object item in DragAndDrop.objectReferences)
+            {
+                if (TryGetDraggedListItem(item, listType, out _))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 支持从 Project 拖入组件，也支持从 Hierarchy 拖入其所在 GameObject。
+        /// </summary>
+        private static bool TryGetDraggedListItem(UnityEngine.Object draggedObject, Type listType, out UnityEngine.Object listItem)
+        {
+            listItem = null;
+            if (draggedObject == null)
+            {
+                return false;
+            }
+
+            if (listType.IsInstanceOfType(draggedObject))
+            {
+                listItem = draggedObject;
+                return true;
+            }
+
+            GameObject gameObject = draggedObject as GameObject;
+            if (gameObject == null && draggedObject is Component component)
+            {
+                gameObject = component.gameObject;
+            }
+
+            Component matchingComponent = gameObject != null ? gameObject.GetComponent(listType) : null;
+            if (matchingComponent == null && gameObject != null)
+            {
+                matchingComponent = gameObject.GetComponentInChildren(listType, true);
+            }
+            if (matchingComponent == null)
+            {
+                return false;
+            }
+
+            listItem = matchingComponent;
+            return true;
+        }
+
         private static string GetListItemFoldoutTitle(object itemValue, int index)
         {
             string prefix = $"元素 {index}";
@@ -1653,9 +1743,7 @@ namespace Nodin.Editor
 
             // 折叠状态
             string foldKey = $"{label}_{type.FullName}";
-            if (!_dictFoldouts.ContainsKey(foldKey))
-                _dictFoldouts[foldKey] = true;
-            bool expanded = _dictFoldouts[foldKey];
+            bool expanded = GetFoldoutState($"__dict_{foldKey}", true);
 
             // ── 标题行（复用 DrawGroupHeader 样式，右侧预留 + 按钮区域）──
             // 与 List 一致：只读字典仍允许展开/折叠查看内容。
@@ -1665,9 +1753,9 @@ namespace Nodin.Editor
             GUI.enabled = previousGuiEnabled;
             if (toggled)
             {
-                _dictFoldouts[foldKey] = !expanded;
                 expanded = !expanded;
             }
+            SetFoldoutState($"__dict_{foldKey}", expanded);
 
             // 右上角添加按钮（覆盖在标题行右侧）
             var btnRect = new Rect(headerRect.xMax - 28, headerRect.y + 3, 24, 18);
@@ -1737,7 +1825,7 @@ namespace Nodin.Editor
                 bool drawInlineValue = inlineValues && entryVal != null;
                 string entryFoldKey = $"{foldKey}:{key}";
                 if (drawInlineValue && !_dictFoldouts.ContainsKey(entryFoldKey))
-                    _dictFoldouts[entryFoldKey] = false;
+                    _dictFoldouts[entryFoldKey] = GetFoldoutState($"__dict_entry_{entryFoldKey}", false);
 
                 EditorGUILayout.BeginHorizontal();
 
@@ -1758,7 +1846,10 @@ namespace Nodin.Editor
                     EditorGUILayout.LabelField($"{key}", GUILayout.Width(80));
                 }
                 if (drawInlineValue)
+                {
                     _dictFoldouts[entryFoldKey] = EditorGUILayout.Foldout(_dictFoldouts[entryFoldKey], valType.Name, true);
+                    SetFoldoutState($"__dict_entry_{entryFoldKey}", _dictFoldouts[entryFoldKey]);
+                }
                 else if (valType == typeof(bool))
                     dict[key] = EditorGUILayout.Toggle((bool)(entryVal ?? false));
                 else if (valType == typeof(int))
