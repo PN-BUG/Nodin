@@ -94,66 +94,150 @@ namespace Nodin.Editor
             try
             {
                 _ccaType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.CustomEditorAttributes");
-                if (_ccaType == null) return;
+                if (_ccaType == null)
+                {
+                    Debug.LogWarning("[Nodin] 找不到 UnityEditor.CustomEditorAttributes，无法覆盖 Odin Inspector。");
+                    return;
+                }
 
                 _monoEditorTypeType = _ccaType.GetNestedType("MonoEditorType", BindingFlags.NonPublic | BindingFlags.Public);
                 _kSEditorsField = _ccaType.GetField("kSCustomEditors", BindingFlags.Static | BindingFlags.NonPublic);
                 _sSearchCacheField = _ccaType.GetField("s_SearchCache", BindingFlags.Static | BindingFlags.NonPublic);
                 _rebuildMethod = _ccaType.GetMethod("Rebuild", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
 
-                if (_kSEditorsField == null || _monoEditorTypeType == null) return;
-
-                var dict = _kSEditorsField.GetValue(null) as System.Collections.IDictionary;
-                if (dict == null) return;
-
-                var nodinEditorType = typeof(NodinEditor);
-                int registeredCount = 0;
-
-                foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+                if (_monoEditorTypeType == null)
                 {
-                    System.Type[] types;
-                    try { types = assembly.GetTypes(); } catch { continue; }
-
-                    foreach (var type in types)
-                    {
-                        if (!typeof(ScriptableObject).IsAssignableFrom(type)) continue;
-                        if (type.IsAbstract) continue;
-                        if (!HasNodinAttributes(type)) continue;
-
-                        // 创建 MonoEditorType 条目
-                        var entry = System.Activator.CreateInstance(_monoEditorTypeType);
-                        _monoEditorTypeType.GetField("m_InspectedType").SetValue(entry, type);
-                        _monoEditorTypeType.GetField("m_InspectorType").SetValue(entry, nodinEditorType);
-                        _monoEditorTypeType.GetField("m_EditorForChildClasses").SetValue(entry, false);
-                        _monoEditorTypeType.GetField("m_IsFallback").SetValue(entry, false);
-                        _monoEditorTypeType.GetField("m_RenderPipelineType").SetValue(entry, null);
-
-                        // 替换 kSCustomEditors 中的条目列表
-                        var listType = typeof(List<>).MakeGenericType(_monoEditorTypeType);
-                        var list = (System.Collections.IList)System.Activator.CreateInstance(listType);
-                        list.Add(entry);
-                        dict[type] = list;
-                        registeredCount++;
-                    }
+                    Debug.LogWarning("[Nodin] 找不到 CustomEditorAttributes.MonoEditorType，无法覆盖 Odin Inspector。");
+                    return;
                 }
 
-                // 清除搜索缓存
-                if (_sSearchCacheField != null)
-                {
-                    var cache = _sSearchCacheField.GetValue(null) as System.Collections.IList;
-                    cache?.Clear();
-                }
-
-                // 重建
-                _rebuildMethod?.Invoke(null, null);
+                int registeredCount = _kSEditorsField != null
+                    ? RegisterLegacyCustomEditors()
+                    : RegisterUnity2023CustomEditors();
 
                 if (registeredCount > 0)
                     Debug.Log($"[Nodin] 已为 {registeredCount} 个 ScriptableObject 类型注册 NodinEditor（覆盖 Odin）");
+                else
+                    Debug.LogWarning("[Nodin] 未能注册任何 ScriptableObject 类型，请检查当前 Unity 版本的 CustomEditorAttributes 结构。");
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[Nodin] 注册 NodinEditor 失败（非致命）: {ex.Message}");
+                Debug.LogWarning($"[Nodin] 注册 NodinEditor 失败（非致命）: {ex}");
             }
+        }
+
+        /// <summary>
+        /// Unity 2022.3 及更早版本使用静态 kSCustomEditors 字典。
+        /// </summary>
+        private static int RegisterLegacyCustomEditors()
+        {
+            var dict = _kSEditorsField.GetValue(null) as System.Collections.IDictionary;
+            if (dict == null) return 0;
+
+            var nodinEditorType = typeof(NodinEditor);
+            int registeredCount = 0;
+
+            foreach (var type in GetNodinScriptableObjectTypes())
+            {
+                var entry = System.Activator.CreateInstance(_monoEditorTypeType);
+                SetField(entry, "m_InspectedType", type);
+                SetField(entry, "m_InspectorType", nodinEditorType);
+                SetField(entry, "m_EditorForChildClasses", false);
+                SetField(entry, "m_IsFallback", false);
+                SetField(entry, "m_RenderPipelineType", null);
+
+                var listType = typeof(List<>).MakeGenericType(_monoEditorTypeType);
+                var list = (System.Collections.IList)System.Activator.CreateInstance(listType);
+                list.Add(entry);
+                dict[type] = list;
+                registeredCount++;
+            }
+
+            if (_sSearchCacheField != null)
+            {
+                var cache = _sSearchCacheField.GetValue(null) as System.Collections.IList;
+                cache?.Clear();
+            }
+
+            _rebuildMethod?.Invoke(null, null);
+            return registeredCount;
+        }
+
+        /// <summary>
+        /// Unity 2023.2+ 将自定义编辑器表移动到了实例 CustomEditorCache 中。
+        /// </summary>
+        private static int RegisterUnity2023CustomEditors()
+        {
+            var instanceProperty = _ccaType.GetProperty("instance", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            object instance = instanceProperty?.GetValue(null);
+            if (instance == null) return 0;
+
+            // 先让 Unity/Odin 完成标准缓存构建，再覆盖指定类型，避免 Rebuild 抹掉 Nodin 条目。
+            _rebuildMethod?.Invoke(instance, null);
+
+            var cacheField = _ccaType.GetField("m_Cache", BindingFlags.Instance | BindingFlags.NonPublic);
+            object cache = cacheField?.GetValue(instance);
+            if (cache == null) return 0;
+
+            var cacheType = cache.GetType();
+            var dictionaryField = cacheType.GetField("m_CustomEditorCache", BindingFlags.Instance | BindingFlags.NonPublic);
+            var dictionary = dictionaryField?.GetValue(cache) as System.Collections.IDictionary;
+            if (dictionary == null) return 0;
+
+            var storageType = _ccaType.GetNestedType("MonoEditorTypeStorage", BindingFlags.NonPublic | BindingFlags.Public);
+            if (storageType == null) return 0;
+
+            var listType = typeof(List<>).MakeGenericType(_monoEditorTypeType);
+            int registeredCount = 0;
+
+            foreach (var type in GetNodinScriptableObjectTypes())
+            {
+                var entry = System.Activator.CreateInstance(_monoEditorTypeType);
+                SetField(entry, "inspectorType", typeof(NodinEditor));
+                // null 表示编辑器不限定渲染管线；空数组在 Unity 2023.2 中会被
+                // 解释为“不支持任何当前激活的渲染管线”。
+                SetField(entry, "supportedRenderPipelineTypes", null);
+                SetField(entry, "editorForChildClasses", false);
+                SetField(entry, "isFallback", false);
+
+                var list = (System.Collections.IList)System.Activator.CreateInstance(listType);
+                list.Add(entry);
+
+                object storage = System.Activator.CreateInstance(storageType);
+                SetField(storage, "customEditors", list);
+                SetField(storage, "customEditorsMultiEdition", list);
+                dictionary[type] = storage;
+                registeredCount++;
+            }
+
+            return registeredCount;
+        }
+
+        private static IEnumerable<System.Type> GetNodinScriptableObjectTypes()
+        {
+            foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                System.Type[] types;
+                try { types = assembly.GetTypes(); } catch { continue; }
+
+                foreach (var type in types)
+                {
+                    if (!typeof(ScriptableObject).IsAssignableFrom(type)) continue;
+                    if (type.IsAbstract) continue;
+                    if (!HasNodinAttributes(type)) continue;
+                    yield return type;
+                }
+            }
+        }
+
+        private static void SetField(object targetObject, string fieldName, object value)
+        {
+            var field = targetObject.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (field == null)
+            {
+                throw new System.MissingFieldException(targetObject.GetType().FullName, fieldName);
+            }
+            field.SetValue(targetObject, value);
         }
 
         private void OnEnable()
