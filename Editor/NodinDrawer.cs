@@ -364,11 +364,7 @@ namespace Nodin.Editor
             // 折叠箭头（点击切换展开）
             var arrowRect = new Rect(rect.x + 8, rect.y, 16, rect.height);
             var expanded = _toggleGroupExpanded[groupName];
-            var arrow = expanded ? "▼" : "▶";
-            var oldColor = GUI.color;
-            GUI.color = NodinSettings.ArrowColor;
-            GUI.Label(arrowRect, arrow, EditorStyles.miniLabel);
-            GUI.color = oldColor;
+            Drawing.DrawFoldoutArrow(arrowRect, expanded, NodinSettings.ArrowColor);
 
             if (Event.current.type == EventType.MouseDown && arrowRect.Contains(Event.current.mousePosition))
             {
@@ -462,11 +458,10 @@ namespace Nodin.Editor
             EditorGUI.DrawRect(barRect, isSubGroup ? new Color(0.4f, 0.4f, 0.45f, 0.8f) : NodinSettings.AccentColor);
 
             // 箭头
-            var arrow = expanded ? "▼" : "▶";
-            var oldColor = GUI.color;
-            GUI.color = NodinSettings.ArrowColor;
-            GUI.Label(new Rect(rect.x + 8, rect.y, 16, rect.height), arrow, EditorStyles.miniLabel);
-            GUI.color = oldColor;
+            Drawing.DrawFoldoutArrow(
+                new Rect(rect.x + 8, rect.y, 16, rect.height),
+                expanded,
+                NodinSettings.ArrowColor);
 
             // 标题文字
             var labelRect = new Rect(rect.x + 26, rect.y, rect.width - 26 - (rightReservedWidth > 0 ? rightReservedWidth : 0), rect.height);

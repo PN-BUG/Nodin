@@ -249,11 +249,7 @@ namespace Nodin.Editor
 
             // 箭头
             var arrowRect = new Rect(rect.x + 8, rect.y, 16, rect.height);
-            var arrow = _previewFoldout ? "▼" : "▶";
-            var prevColor = GUI.color;
-            GUI.color = _arrowColor;
-            GUI.Label(arrowRect, arrow, EditorStyles.miniLabel);
-            GUI.color = prevColor;
+            Drawing.DrawFoldoutArrow(arrowRect, _previewFoldout, _arrowColor);
 
             // 标题
             var labelRect = new Rect(rect.x + 26, rect.y, rect.width - 26, rect.height);

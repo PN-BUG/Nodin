@@ -172,9 +172,6 @@ namespace Nodin.Editor
             object instance = instanceProperty?.GetValue(null);
             if (instance == null) return 0;
 
-            // 先让 Unity/Odin 完成标准缓存构建，再覆盖指定类型，避免 Rebuild 抹掉 Nodin 条目。
-            _rebuildMethod?.Invoke(instance, null);
-
             var cacheField = _ccaType.GetField("m_Cache", BindingFlags.Instance | BindingFlags.NonPublic);
             object cache = cacheField?.GetValue(instance);
             if (cache == null) return 0;

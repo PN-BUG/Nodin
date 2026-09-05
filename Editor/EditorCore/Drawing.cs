@@ -128,13 +128,22 @@ public static class Drawing
     /// <summary>绘制折叠箭头（预烘焙纹理，FilterMode.Point 锐利渲染）</summary>
     public static void DrawFoldoutArrow(Rect rect, bool expanded)
     {
+        DrawFoldoutArrow(rect, expanded, Theme.ClrTextDim);
+    }
+
+    /// <summary>使用指定颜色绘制折叠箭头，避免 Unicode 箭头受系统字体回退影响。</summary>
+    public static void DrawFoldoutArrow(Rect rect, bool expanded, Color color)
+    {
         var tex = expanded ? ArrowExpanded : ArrowCollapsed;
         if (tex == null) return;
 
         const float size = 8f;
         float x = rect.x + (rect.width - size) * 0.5f;
         float y = rect.y + (rect.height - size) * 0.5f;
+        var previousColor = GUI.color;
+        GUI.color = color;
         GUI.DrawTexture(new Rect(x, y, size, size), tex, ScaleMode.StretchToFill);
+        GUI.color = previousColor;
     }
 
     public static Texture2D ArrowExpanded
@@ -151,7 +160,8 @@ public static class Drawing
         var px = new Color[SIZE * SIZE];
         for (int i = 0; i < px.Length; i++) px[i] = Color.clear;
 
-        Color c = Theme.ClrTextDim;
+        // 使用白色遮罩，最终颜色由 DrawFoldoutArrow 的 GUI.color 决定。
+        Color c = Color.white;
         if (expanded)
         {
             // ▼ 向下三角：每行宽度递增，水平居中
