@@ -10,22 +10,58 @@ using UnityEngine;
 public static class Theme
 {
     #region 深色主题配色
-    public static readonly Color ClrBg           = Palette.Bg;
-    public static readonly Color ClrLeftBg       = Palette.LeftBg;
-    public static readonly Color ClrRightBg      = Palette.RightBg;
-    public static readonly Color ClrSplitter     = Palette.Splitter;
-    public static readonly Color ClrSelection    = Palette.Selection;
-    public static readonly Color ClrHover        = Palette.Hover;
-    public static readonly Color ClrText         = Palette.Text;
-    public static readonly Color ClrTextDim      = Palette.TextDim;
-    public static readonly Color ClrTextBright   = Palette.TextBright;
-    public static readonly Color ClrAccent       = Palette.Accent;
-    public static readonly Color ClrAccentDim    = Palette.AccentDim;
-    public static readonly Color ClrCardBg       = Palette.CardBg;
-    public static readonly Color ClrTagBg        = Palette.TagBg;
-    public static readonly Color ClrDivider      = Palette.Divider;
-    public static readonly Color ClrBtnNormal    = Palette.BtnNormal;
-    public static readonly Color ClrBtnHover     = Palette.BtnHover;
+    public static Color ClrBg           { get; private set; } = Palette.Bg;
+    public static Color ClrLeftBg       { get; private set; } = Palette.LeftBg;
+    public static Color ClrRightBg      { get; private set; } = Palette.RightBg;
+    public static Color ClrSplitter     { get; private set; } = Palette.Splitter;
+    public static Color ClrSelection    { get; private set; } = Palette.Selection;
+    public static Color ClrHover        { get; private set; } = Palette.Hover;
+    public static Color ClrText         { get; private set; } = Palette.Text;
+    public static Color ClrTextDim      { get; private set; } = Palette.TextDim;
+    public static Color ClrTextBright   { get; private set; } = Palette.TextBright;
+    public static Color ClrAccent       { get; private set; } = Palette.Accent;
+    public static Color ClrAccentDim    { get; private set; } = Palette.AccentDim;
+    public static Color ClrCardBg       { get; private set; } = Palette.CardBg;
+    public static Color ClrTagBg        { get; private set; } = Palette.TagBg;
+    public static Color ClrDivider      { get; private set; } = Palette.Divider;
+    public static Color ClrBtnNormal    { get; private set; } = Palette.BtnNormal;
+    public static Color ClrBtnHover     { get; private set; } = Palette.BtnHover;
+    public static Color ClrSearchBg     { get; private set; } = Palette.SearchBg;
+    public static Color ClrItemHover    { get; private set; } = Palette.ItemHover;
+    public static Color ClrGroupBoxBg   { get; private set; } = Palette.GroupBoxBg;
+    public static Color ClrToolbarBg    { get; private set; } = Palette.ToolbarBg;
+    public static Color ClrItemBg       { get; private set; } = Palette.ItemBg;
+
+    /// <summary>应用 Hub 运行时主题。派生色由基础色自动计算，避免设置页暴露过多低层颜色。</summary>
+    public static void ApplyHubPalette(
+        Color background, Color sidebar, Color panel, Color card,
+        Color accent, Color text, Color mutedText)
+    {
+        background.a = sidebar.a = panel.a = card.a = accent.a = text.a = mutedText.a = 1f;
+
+        ClrBg = background;
+        ClrLeftBg = sidebar;
+        ClrRightBg = panel;
+        ClrCardBg = card;
+        ClrAccent = accent;
+        ClrText = text;
+        ClrTextBright = Color.Lerp(text, Color.white, 0.35f);
+        ClrTextDim = mutedText;
+
+        ClrAccentDim = new Color(accent.r, accent.g, accent.b, 0.45f);
+        ClrSelection = new Color(accent.r, accent.g, accent.b, 0.24f);
+        ClrHover = new Color(text.r, text.g, text.b, 0.055f);
+        ClrDivider = new Color(text.r, text.g, text.b, 0.11f);
+        ClrSplitter = Color.Lerp(sidebar, Color.black, 0.32f);
+        ClrTagBg = Color.Lerp(card, text, 0.08f);
+        ClrBtnNormal = Color.Lerp(accent, panel, 0.10f);
+        ClrBtnHover = Color.Lerp(accent, Color.white, 0.13f);
+        ClrSearchBg = Color.Lerp(sidebar, text, 0.035f);
+        ClrItemHover = Color.Lerp(card, text, 0.07f);
+        ClrGroupBoxBg = Color.Lerp(sidebar, card, 0.70f);
+        ClrToolbarBg = Color.Lerp(sidebar, Color.black, 0.12f);
+        ClrItemBg = Color.Lerp(panel, card, 0.55f);
+    }
     #endregion
 
     #region 分类配色（语义化 5 色系）

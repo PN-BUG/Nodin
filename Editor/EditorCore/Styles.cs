@@ -379,6 +379,56 @@ public static class Styles
         _stylesReady = true;
         return true;
     }
+
+    /// <summary>将已创建的 GUIStyle 与运行时主题同步，使设置页的颜色变更可以立即预览。</summary>
+    public static void RefreshTheme()
+    {
+        if (!EnsureInit()) return;
+
+        UpdateSolidTexture(_texHover, Theme.ClrHover);
+        UpdateSolidTexture(_texSelected, Theme.ClrSelection);
+
+        _styleCategoryHeader.normal.textColor = Theme.ClrTextDim;
+        _styleToolItem.normal.textColor = Theme.ClrText;
+        _styleToolItem.hover.textColor = Theme.ClrTextBright;
+        _styleToolItem.active.textColor = Theme.ClrTextBright;
+        _styleToolItemSelected.normal.textColor = Theme.ClrTextBright;
+        _styleToolItemSelected.hover.textColor = Theme.ClrTextBright;
+        _styleToolItemSelected.active.textColor = Theme.ClrTextBright;
+        _styleRightTitle.normal.textColor = Theme.ClrTextBright;
+        _styleRightSubtitle.normal.textColor = Theme.ClrTextDim;
+        _styleDescription.normal.textColor = Theme.ClrText;
+        _styleTag.normal.textColor = Theme.ClrText;
+        _styleWelcomeTitle.normal.textColor = Theme.ClrTextBright;
+        _styleWelcomeSub.normal.textColor = Theme.ClrTextDim;
+        _styleStatNum.normal.textColor = Theme.ClrAccent;
+        _styleStatLabel.normal.textColor = Theme.ClrTextDim;
+        _styleBtnFlat.normal.textColor = Theme.ClrText;
+        _styleBtnFlat.hover.textColor = Theme.ClrTextBright;
+        _styleSectionHeader.normal.textColor = Theme.ClrTextDim;
+        _styleShortcut.normal.textColor = Theme.ClrTextDim;
+        _styleLogo.normal.textColor = Theme.ClrTextBright;
+        _styleVersion.normal.textColor = Theme.ClrTextDim;
+        _styleCatCardIcon.normal.textColor = Theme.ClrAccent;
+        _styleCatCardName.normal.textColor = Theme.ClrText;
+        _styleCatCardCount.normal.textColor = Theme.ClrTextDim;
+        _styleBackButton.normal.textColor = Theme.ClrTextDim;
+        _styleBackButton.hover.textColor = Theme.ClrTextBright;
+        _styleEmptyHint.normal.textColor = Theme.ClrTextDim;
+        _styleKeyCap.normal.textColor = Theme.ClrTextBright;
+        _styleHiddenItemName.normal.textColor = Theme.ClrTextBright;
+        _styleHiddenItemDesc.normal.textColor = Theme.ClrTextDim;
+        _styleSearchPlaceholder.normal.textColor = Theme.ClrTextDim;
+        _styleFoldButton.normal.textColor = Theme.ClrTextDim;
+        _styleFoldButton.hover.textColor = Theme.ClrText;
+    }
+
+    private static void UpdateSolidTexture(Texture2D texture, Color color)
+    {
+        if (texture == null) return;
+        texture.SetPixel(0, 0, color);
+        texture.Apply(false, false);
+    }
     #endregion
 
     #region 资源清理
