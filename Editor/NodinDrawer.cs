@@ -90,12 +90,16 @@ namespace Nodin.Editor
         private readonly Dictionary<string, SerializedProperty> _serializedPropertyCache = new();
         private readonly HashSet<string> _missingSerializedProperties = new();
 
-        public NodinDrawer(object target, UnityEngine.Object undoTarget = null)
+        public NodinDrawer(
+            object target,
+            UnityEngine.Object undoTarget = null,
+            SerializedObject serializedObject = null)
         {
             _target = target;
             _undoTarget = undoTarget ?? (target as UnityEngine.Object);
             _type = target.GetType();
-            if (target is UnityEngine.Object unityObject)
+            _serializedObject = serializedObject;
+            if (_serializedObject == null && target is UnityEngine.Object unityObject)
                 _serializedObject = new SerializedObject(unityObject);
             // ── 收集字段并缓存所有 Attribute ──
             var fields = _type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)

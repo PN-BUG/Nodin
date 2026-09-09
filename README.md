@@ -4,7 +4,8 @@
 
 ## 版本信息
 
-- **版本**: 1.8.0
+- **稳定版本**: 1.8.0
+- **文档状态**: 当前工作区开发版（2026-09-09）
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -55,7 +56,7 @@
 ## 基类
 
 ### NodinMonoBehaviour
-继承此类即可让 MonoBehaviour 自动支持 Nodin 属性绘制，同时**自动处理 Dictionary 字段的序列化**（Unity 原生不支持 Dictionary 序列化）。
+`NodinMonoBehaviour` 是可选基类，主要用于**自动处理 Dictionary 字段的序列化**（Unity 原生不支持 Dictionary 序列化）。普通 Nodin 属性绘制不依赖该基类，业务类可继续保持原来的 `MonoBehaviour`、`MonoSingleton<T>` 或其他继承关系。
 
 ```csharp
 using UnityEngine;
@@ -78,7 +79,9 @@ public class EnemyManager : NodinMonoBehaviour
 > **注意**: 使用 `Dictionary` 字段时**必须继承 `NodinMonoBehaviour`**，否则序列化数据会在 Play Mode 切换时丢失。`NodinMonoBehaviour` 实现了 `ISerializationCallbackReceiver`，通过扁平列表自动持久化所有 Dictionary 字段。
 
 ### MonoBehaviour 自动支持（v1.3.0+）
-从 v1.3.0 起，所有 `MonoBehaviour`（包括通过 `MonoSingleton<T>` 等模式间接继承的类型）**无需修改继承关系**即可使用 Nodin 属性。编辑器会自动检测字段上是否使用了 `[LabelText]`、`[FoldoutGroup]` 等特性，有则使用 NodinDrawer 绘制，否则回退到 Unity 默认 Inspector。
+从 v1.3.0 起，所有 `MonoBehaviour`（包括通过 `MonoSingleton<T>` 等模式间接继承的类型）**无需修改继承关系**即可使用 Nodin 属性。编辑器会自动检测字段、属性和方法上的 Nodin 特性，有则使用 `NodinDrawer` 绘制。
+
+未安装 Odin Inspector 时，Nodin 的通用编辑器以 fallback 方式工作；同时安装 Odin Inspector 时，Nodin 会在脚本编译或域重载后自动将实际使用 Nodin 特性的具体类型注册到 Odin 的 Editor Types 配置。没有使用 Nodin 特性的类型继续使用 Odin 或项目已有的 CustomEditor。
 
 ```csharp
 // 即使继承 MonoSingleton（→ MonoBehaviour），[LabelText] 也能正常渲染
@@ -422,7 +425,7 @@ public class MyEditorWindow : NodinEditorWindow
 
 ### 2. ScriptableObject 自动编辑器
 
-Nodin 会自动为所有 `ScriptableObject` 生成编辑器，无需额外代码：
+`ScriptableObject` 可以直接使用 Nodin 特性，无需继承专用基类或编写 CustomEditor：
 
 ```csharp
 using UnityEngine;
@@ -492,7 +495,7 @@ public class DropdownExample : MonoBehaviour
 
 | 分组 | 测试内容 |
 |------|----------|
-| 绘制模式切换 | `useNodinDrawing` toggle — 按实例切换 Nodin/Odin 绘制 |
+| 绘制模式切换 | `useNodinDrawing` toggle — 按实例切换 Nodin/Unity 原生绘制 |
 | 标签 & 显示 | `[LabelText]`、`[HideLabel]` |
 | 信息提示 | `[InfoBox]` Info/Warning/Error + 条件显示 |
 | 折叠分组 | `[FoldoutGroup]` 展开/折叠 + 子分组 |
@@ -536,9 +539,13 @@ public class DropdownExample : MonoBehaviour
 
 8. **Dictionary 序列化**: 使用 `Dictionary` 字段时必须继承 `NodinMonoBehaviour`，否则数据会在序列化时丢失。普通 `MonoBehaviour` 的 Nodin 属性绘制（`[LabelText]` 等）从 v1.3.0 起自动支持，无需修改继承
 
-9. **Odin Inspector 共存（ScriptableObject）**: 当项目中同时安装了 Sirenix Odin Inspector 时，Odin 会为每个 `ScriptableObject` 子类型动态注册 `OdinEditor`，覆盖 Nodin 的通用注册。Nodin 通过 `EditorApplication.delayCall` 在 Odin 之后扫描所有含 Nodin 属性的 `ScriptableObject` 类型，直接在 `CustomEditorAttributes.kSCustomEditors` 中注册 `NodinEditor` 覆盖 Odin 的条目。此机制为一次性启动操作，无运行时性能开销。未安装 Odin 时跳过扫描（`HasOdin()` 守卫），零开销
+9. **Odin Inspector 共存**: 当项目中同时安装 Sirenix Odin Inspector 时，Nodin 在脚本编译或域重载后自动扫描带 Nodin 特性的 `MonoBehaviour` 和 `ScriptableObject`，并通过 Odin 公开的 Editor Types 配置 API 为具体类型注册 Nodin Editor。该实现不修改 Unity 私有的 CustomEditor 缓存，也不会在一个 Editor 内创建并手动驱动另一个 Editor
 
-10. **Odin Inspector 共存（MonoBehaviour 按实例切换）**: 继承 `NodinMonoBehaviour` 的类型可通过添加 `bool useNodinDrawing` 字段（配合 `[OnValueChanged]`）实现**按实例**切换 Nodin/Odin 绘制。`NodinMonoBehaviourEditor.OnInspectorGUI` 每帧读取该字段值：为 `true` 时使用 `NodinDrawer` 绘制，为 `false` 时委托给缓存的 `OdinEditor` 实例绘制。此机制仅影响当前选中的实例，不修改全局编辑器注册表，不影响其他实例
+10. **自动注册与手动刷新**: 自动注册通常不需要操作。保存新增或修改了 Nodin 特性的脚本后，Unity 编译及域重载会触发注册。菜单 `Tools/Nodin/刷新 Odin 编辑器注册` 是缓存未及时更新时的备用入口
+
+11. **`NodinMonoBehaviour` 的用途**: 普通 Nodin Inspector 绘制不要求继承 `NodinMonoBehaviour`。只有需要 Nodin 自动持久化 `Dictionary` 时才需要该基类。类中存在 `bool useNodinDrawing` 且值为 `false` 时，该实例使用 Unity 原生 Inspector 绘制
+
+12. **Unity 版本后缀**: Nodin 不根据 `Application.unityVersion` 的 `f1`、`f2`、`f2c1` 等发行后缀选择编辑器实现，而是使用当前 Unity/Odin 可用的公开 API。因此同一 Unity 主版本和补丁版本的标准版与中国特供版（例如 `2022.3.62f2` 与 `2022.3.62f2c1`）走同一套兼容逻辑
 
 ## 常见问题
 
@@ -581,10 +588,13 @@ private string[] GetOptions() => new[] { "选项1", "选项2", "选项3" };
 A: 必须继承 `NodinMonoBehaviour` 而非 `MonoBehaviour`。`NodinMonoBehaviour` 实现了 `ISerializationCallbackReceiver`，会在序列化时自动保存 Dictionary 数据。
 
 ### Q: 项目中安装了 Odin Inspector，Nodin 特性的 ScriptableObject 不生效？
-A: Nodin v1.7.0+ 已自动处理 Odin 共存。启动时扫描所有含 Nodin 属性的 `ScriptableObject` 类型，在 `CustomEditorAttributes.kSCustomEditors` 中注册 `NodinEditor` 覆盖 Odin 的动态注册。控制台会输出 `[Nodin] 已为 N 个 ScriptableObject 类型注册 NodinEditor（覆盖 Odin）` 确认注册成功。未安装 Odin 时跳过扫描。如未生效，检查控制台是否有 `[Nodin] 注册 NodinEditor 失败` 警告。
+A: 当前版本会在脚本编译或域重载后自动扫描，并通过 Odin 的 Editor Types 配置注册带 Nodin 特性的具体类型，一般不需要手动操作。如果 Inspector 没有及时切换，可执行 `Tools/Nodin/刷新 Odin 编辑器注册`，然后重新选中对象。该机制同时适用于 `MonoBehaviour` 和 `ScriptableObject`。
 
-### Q: 如何在 Nodin 和 Odin 之间按实例切换绘制？
-A: 在继承 `NodinMonoBehaviour` 的类中添加 `bool useNodinDrawing` 字段（配合 `[OnValueChanged]`）。`NodinMonoBehaviourEditor` 会每帧读取该字段：为 `true` 时使用 Nodin 绘制，为 `false` 时委托给 Odin Editor 绘制。仅影响当前实例，不影响全局或其他实例。未安装 Odin 时关闭 toggle 会回退到原生绘制。参考 `NodinTest.cs` 中的实现。
+### Q: MonoBehaviour 必须继承 NodinMonoBehaviour 吗？
+A: 不需要。直接继承 `MonoBehaviour`、`MonoSingleton<T>` 或其他 MonoBehaviour 基类即可使用 Nodin Inspector 特性。只有需要 Nodin 自动序列化 `Dictionary` 时才必须继承 `NodinMonoBehaviour`。
+
+### Q: 如何按实例切换 Nodin 和 Unity 原生绘制？
+A: 在继承 `NodinMonoBehaviour` 的类中添加 `bool useNodinDrawing` 字段。值为 `true` 时使用 Nodin，值为 `false` 时使用 Unity 原生 Inspector。参考 `NodinTest.cs` 中的实现。
 
 ### Q: 如何自定义 Dictionary 的列标签？
 A: 使用 `[DictionaryDrawerSettings]` 特性：
@@ -594,6 +604,14 @@ public Dictionary<string, int> data;
 ```
 
 ## 更新日志
+
+> 以下条目记录各版本当时的实现。若历史条目与“当前开发版”或上文使用说明冲突，以当前开发版说明为准。
+
+### 当前开发版 (2026-09-09)
+- **Odin 共存注册改用公开 API**: 自动扫描带 Nodin 特性的 `MonoBehaviour` 和 `ScriptableObject`，通过 Odin Editor Types 配置注册具体编辑器，不再修改 Unity 私有 `CustomEditorAttributes` 缓存
+- **业务继承保持不变**: 普通 `MonoBehaviour`、`MonoSingleton<T>` 和 `ScriptableObject` 可直接使用 Nodin 特性；`NodinMonoBehaviour` 仅负责 Dictionary 自动序列化等附加能力
+- **自动刷新**: 脚本编译及域重载后自动刷新 Odin 编辑器注册，新增 `Tools/Nodin/刷新 Odin 编辑器注册` 作为手动恢复入口
+- **Inspector 生命周期修复**: 移除 Nodin Editor 内嵌创建 Odin Editor 的绘制方式，避免 Unity UI Toolkit 数据绑定生命周期冲突
 
 ### v1.8.0 (2026-07-29)
 - **集合分页绘制**: List 和 Dictionary 超过全局每页项数时按页绘制，默认 20 项；可在 `NodinSettings.asset` / 初始化设置中调整，也可通过两个 DrawerSettings 的 `NumberOfItemsPerPage` 局部覆盖。
