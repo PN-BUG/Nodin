@@ -319,6 +319,44 @@ namespace Nodin
         public bool AlwaysAddDefaultValue { get; set; }
     }
 
+    /// <summary>
+    /// 为复杂对象 List/数组绘制批量对象拖放区，并将对象写入列表元素的指定成员。
+    /// 可在同一列表上重复使用，以支持成对或多列资源配置。
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = true)]
+    public class ListDropZoneAttribute : Attribute
+    {
+        /// <summary>列表元素中接收拖入对象的字段或可写属性名。</summary>
+        public string TargetMemberName { get; }
+
+        /// <summary>拖放区标题。</summary>
+        public string Label { get; }
+
+        /// <summary>标题下方的补充说明。</summary>
+        public string Description { get; set; }
+
+        /// <summary>是否跳过目标成员中已经存在的相同对象。</summary>
+        public bool SkipDuplicates { get; set; }
+
+        /// <summary>
+        /// 列表元素中用于同名配对的另一个 Object 字段或属性名。
+        /// 设置后，拖入对象会优先写入该成员资源文件名相同的元素；目标成员已有值时会覆盖旧值。
+        /// </summary>
+        public string MatchMemberName { get; set; }
+
+        /// <summary>多个拖放区之间的显示顺序。</summary>
+        public int Order { get; set; }
+
+        /// <summary>拖放区高度。</summary>
+        public float Height { get; set; } = 48f;
+
+        public ListDropZoneAttribute(string targetMemberName, string label)
+        {
+            TargetMemberName = targetMemberName;
+            Label = label;
+        }
+    }
+
     /// <summary>Dictionary 字段的绘制设置</summary>
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Method)]
     public class DictionaryDrawerSettingsAttribute : Attribute

@@ -51,6 +51,7 @@ namespace Nodin.Editor
         private static int _groupHeaderStyleFontSize = int.MinValue;
         private static Color _groupHeaderStyleColor;
         private static GUIStyle _listGripStyle;
+        private static GUIStyle _listDropZoneStyle;
         private static readonly GUIStyle[] _titleStyles = new GUIStyle[6];
 
         // ── 标签宽度：默认固定宽度，[LabelText(AutoWidth = true)] 时按文字像素自适应 ──
@@ -1203,7 +1204,7 @@ namespace Nodin.Editor
             if ((type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>)) || type.IsArray)
             {
                 var listSettings = fm.GetAttr<ListDrawerSettingsAttribute>();
-                return DrawListField(label, value, type, hideLabel, listSettings);
+                return DrawListField(label, value, type, hideLabel, listSettings, fm.ListDropZones);
             }
 
             // Dictionary<TKey, TValue>
@@ -1254,7 +1255,13 @@ namespace Nodin.Editor
             return value;
         }
 
-        private object DrawListField(string label, object value, Type type, bool hideLabel, ListDrawerSettingsAttribute settings = null)
+        private object DrawListField(
+            string label,
+            object value,
+            Type type,
+            bool hideLabel,
+            ListDrawerSettingsAttribute settings = null,
+            ListDropZoneMeta[] dropZones = null)
         {
             bool canDrag = settings?.DraggableItems != false;
             bool canAdd = settings?.HideAddButton != true;
@@ -1327,6 +1334,8 @@ namespace Nodin.Editor
                 EditorGUILayout.LabelField("（空列表）", EditorStyles.centeredGreyMiniLabel);
             }
 
+            DrawConfiguredListDropZones(list, listType, dropZones);
+
             // 所有对象列表（无论是否已有元素）均提供统一的追加拖放区域。
             if (typeof(UnityEngine.Object).IsAssignableFrom(listType))
             {
@@ -1346,13 +1355,10 @@ namespace Nodin.Editor
                     else if (dragEvent.type == EventType.DragPerform)
                     {
                         int addedCount = 0;
-                        foreach (UnityEngine.Object item in DragAndDrop.objectReferences)
+                        foreach (UnityEngine.Object listItem in GetCompatibleDraggedObjects(listType))
                         {
-                            if (TryGetDraggedListItem(item, listType, out UnityEngine.Object listItem))
-                            {
-                                list.Add(listItem);
-                                addedCount++;
-                            }
+                            list.Add(listItem);
+                            addedCount++;
                         }
 
                         if (addedCount > 0)
@@ -1646,15 +1652,215 @@ namespace Nodin.Editor
             return array;
         }
 
-        private static bool HasCompatibleDraggedObject(Type listType)
+        private void DrawConfiguredListDropZones(
+            System.Collections.IList list,
+            Type elementType,
+            ListDropZoneMeta[] dropZones)
         {
-            foreach (UnityEngine.Object item in DragAndDrop.objectReferences)
+            if (dropZones == null || dropZones.Length == 0)
+                return;
+
+            for (int i = 0; i < dropZones.Length; i++)
             {
-                if (TryGetDraggedListItem(item, listType, out _))
-                    return true;
+                ListDropZoneMeta dropZone = dropZones[i];
+                if (!dropZone.IsValid)
+                {
+                    EditorGUILayout.HelpBox(dropZone.Error, MessageType.Error);
+                    continue;
+                }
+
+                float height = Mathf.Max(32f, dropZone.Attribute.Height);
+                Rect dropRect = GUILayoutUtility.GetRect(0f, height, GUILayout.ExpandWidth(true));
+                string text = string.IsNullOrWhiteSpace(dropZone.Attribute.Description)
+                    ? dropZone.Attribute.Label
+                    : $"{dropZone.Attribute.Label}\n{dropZone.Attribute.Description}";
+                GUI.Box(dropRect, text, GetListDropZoneStyle());
+
+                Event dragEvent = Event.current;
+                if (!dropRect.Contains(dragEvent.mousePosition))
+                    continue;
+
+                List<UnityEngine.Object> compatibleObjects = GetCompatibleDraggedObjects(dropZone.MemberType);
+                bool hasCompatibleObject = compatibleObjects.Count > 0;
+                if (dragEvent.type == EventType.DragUpdated)
+                {
+                    DragAndDrop.visualMode = hasCompatibleObject
+                        ? DragAndDropVisualMode.Copy
+                        : DragAndDropVisualMode.Rejected;
+                    dragEvent.Use();
+                    continue;
+                }
+
+                if (dragEvent.type != EventType.DragPerform)
+                    continue;
+
+                if (!hasCompatibleObject)
+                {
+                    dragEvent.Use();
+                    continue;
+                }
+
+                var existingObjects = new HashSet<UnityEngine.Object>();
+                if (dropZone.Attribute.SkipDuplicates)
+                {
+                    for (int listIndex = 0; listIndex < list.Count; listIndex++)
+                    {
+                        object element = list[listIndex];
+                        if (element != null && dropZone.GetValue(element) is UnityEngine.Object existing)
+                            existingObjects.Add(existing);
+                    }
+                }
+
+                var acceptedObjects = new List<UnityEngine.Object>();
+                foreach (UnityEngine.Object memberValue in compatibleObjects)
+                {
+                    if (dropZone.Attribute.SkipDuplicates && !existingObjects.Add(memberValue))
+                        continue;
+                    acceptedObjects.Add(memberValue);
+                }
+
+                if (acceptedObjects.Count > 0)
+                {
+                    RecordUndo("Nodin: 批量拖入列表成员");
+                    for (int objectIndex = 0; objectIndex < acceptedObjects.Count; objectIndex++)
+                    {
+                        UnityEngine.Object memberValue = acceptedObjects[objectIndex];
+                        int emptyIndex = FindNameMatchedDropZoneMember(list, dropZone, memberValue);
+                        if (emptyIndex < 0)
+                            emptyIndex = FindFirstEmptyDropZoneMember(list, dropZone);
+
+                        object element = emptyIndex >= 0 ? list[emptyIndex] : null;
+                        element ??= Activator.CreateInstance(elementType, true);
+                        dropZone.SetValue(element, memberValue);
+
+                        // 结构体通过反射修改的是装箱副本，必须写回集合。
+                        if (emptyIndex >= 0)
+                            list[emptyIndex] = element;
+                        else
+                            list.Add(element);
+                    }
+
+                    DragAndDrop.AcceptDrag();
+                    GUI.changed = true;
+                }
+
+                dragEvent.Use();
+            }
+        }
+
+        private static int FindNameMatchedDropZoneMember(
+            System.Collections.IList list,
+            ListDropZoneMeta dropZone,
+            UnityEngine.Object draggedObject)
+        {
+            string draggedObjectName = GetAssetMatchName(draggedObject);
+            if (!dropZone.HasMatchMember || string.IsNullOrEmpty(draggedObjectName))
+                return -1;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                object element = list[i];
+                if (element == null)
+                    continue;
+
+                // 同名配对应当优先于当前目标槽位是否已有值。这样即使用户之前按顺序
+                // 拖入造成了错位，再次拖入同名资源也会回到正确的配对行并覆盖旧值。
+                if (dropZone.GetMatchValue(element) is UnityEngine.Object matchObject
+                    && string.Equals(
+                        GetAssetMatchName(matchObject),
+                        draggedObjectName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
             }
 
-            return false;
+            return -1;
+        }
+
+        private static string GetAssetMatchName(UnityEngine.Object asset)
+        {
+            if (asset == null)
+                return string.Empty;
+
+            string assetPath = AssetDatabase.GetAssetPath(asset);
+            if (!string.IsNullOrEmpty(assetPath))
+            {
+                string fileName = System.IO.Path.GetFileNameWithoutExtension(assetPath);
+                if (!string.IsNullOrWhiteSpace(fileName))
+                    return fileName.Trim();
+            }
+
+            return asset.name?.Trim() ?? string.Empty;
+        }
+
+        private static int FindFirstEmptyDropZoneMember(
+            System.Collections.IList list,
+            ListDropZoneMeta dropZone)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                object element = list[i];
+                if (element == null || dropZone.GetValue(element) == null)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static GUIStyle GetListDropZoneStyle()
+        {
+            if (_listDropZoneStyle == null)
+            {
+                _listDropZoneStyle = new GUIStyle(EditorStyles.helpBox)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    wordWrap = true,
+                    fontSize = 11
+                };
+            }
+
+            return _listDropZoneStyle;
+        }
+
+        private static bool HasCompatibleDraggedObject(Type listType)
+        {
+            return GetCompatibleDraggedObjects(listType).Count > 0;
+        }
+
+        private static List<UnityEngine.Object> GetCompatibleDraggedObjects(Type targetType)
+        {
+            var result = new List<UnityEngine.Object>();
+            var instanceIds = new HashSet<int>();
+
+            void AddIfCompatible(UnityEngine.Object draggedObject)
+            {
+                if (!TryGetDraggedListItem(draggedObject, targetType, out UnityEngine.Object converted)
+                    || converted == null
+                    || !instanceIds.Add(converted.GetInstanceID()))
+                {
+                    return;
+                }
+
+                result.Add(converted);
+            }
+
+            foreach (UnityEngine.Object draggedObject in DragAndDrop.objectReferences)
+                AddIfCompatible(draggedObject);
+
+            // Unity Project 窗口在不同视图/导入类型下，objectReferences 可能提供
+            // Sprite 子资源或其它包装对象。使用拖入路径补充解析主资源和子资源。
+            foreach (string assetPath in DragAndDrop.paths)
+            {
+                if (string.IsNullOrWhiteSpace(assetPath))
+                    continue;
+
+                AddIfCompatible(AssetDatabase.LoadMainAssetAtPath(assetPath));
+                foreach (UnityEngine.Object asset in AssetDatabase.LoadAllAssetsAtPath(assetPath))
+                    AddIfCompatible(asset);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -1671,6 +1877,14 @@ namespace Nodin.Editor
             if (listType.IsInstanceOfType(draggedObject))
             {
                 listItem = draggedObject;
+                return true;
+            }
+
+            // Sprite 资源拖入 Texture/Texture2D 成员时，使用其底层贴图。
+            // Project 窗口对 Sprite 类型图片可能传入 Sprite 子资源，而非 Texture2D 主资源。
+            if (draggedObject is Sprite sprite && listType.IsInstanceOfType(sprite.texture))
+            {
+                listItem = sprite.texture;
                 return true;
             }
 
@@ -2080,6 +2294,208 @@ namespace Nodin.Editor
 
         // ── 字段元数据缓存 ──────────────────────────────────
 
+        private sealed class ListDropZoneMeta
+        {
+            public ListDropZoneAttribute Attribute { get; private set; }
+            public Type MemberType { get; private set; }
+            public string Error { get; private set; }
+            public bool IsValid => string.IsNullOrEmpty(Error);
+
+            private FieldInfo _field;
+            private PropertyInfo _property;
+            private FieldInfo _matchField;
+            private PropertyInfo _matchProperty;
+
+            public bool HasMatchMember => _matchField != null || _matchProperty != null;
+
+            public object GetValue(object target)
+            {
+                return _field != null ? _field.GetValue(target) : _property.GetValue(target);
+            }
+
+            public void SetValue(object target, UnityEngine.Object value)
+            {
+                if (_field != null)
+                    _field.SetValue(target, value);
+                else
+                    _property.SetValue(target, value);
+            }
+
+            public object GetMatchValue(object target)
+            {
+                return _matchField != null
+                    ? _matchField.GetValue(target)
+                    : _matchProperty?.GetValue(target);
+            }
+
+            public static ListDropZoneMeta[] Build(
+                Type collectionType,
+                IEnumerable<ListDropZoneAttribute> attributes)
+            {
+                ListDropZoneAttribute[] orderedAttributes = attributes
+                    .OrderBy(attribute => attribute.Order)
+                    .ToArray();
+                if (orderedAttributes.Length == 0)
+                    return Array.Empty<ListDropZoneMeta>();
+
+                Type elementType = collectionType.IsArray
+                    ? collectionType.GetElementType()
+                    : collectionType.IsGenericType
+                        && collectionType.GetGenericTypeDefinition() == typeof(List<>)
+                            ? collectionType.GetGenericArguments()[0]
+                            : null;
+
+                var result = new List<ListDropZoneMeta>(orderedAttributes.Length);
+                for (int i = 0; i < orderedAttributes.Length; i++)
+                    result.Add(BuildSingle(elementType, orderedAttributes[i]));
+                return result.ToArray();
+            }
+
+            private static ListDropZoneMeta BuildSingle(
+                Type elementType,
+                ListDropZoneAttribute attribute)
+            {
+                var meta = new ListDropZoneMeta { Attribute = attribute };
+                string zoneName = string.IsNullOrWhiteSpace(attribute.Label)
+                    ? attribute.TargetMemberName
+                    : attribute.Label;
+
+                if (elementType == null)
+                {
+                    meta.Error = $"ListDropZone“{zoneName}”只能用于 List<T> 或数组。";
+                    return meta;
+                }
+
+                if (string.IsNullOrWhiteSpace(attribute.TargetMemberName))
+                {
+                    meta.Error = $"ListDropZone“{zoneName}”未指定目标成员名。";
+                    return meta;
+                }
+
+                if (!CanCreateListElement(elementType))
+                {
+                    meta.Error = $"ListDropZone“{zoneName}”无法创建列表元素 {elementType.Name}，元素必须是可实例化的类型。";
+                    return meta;
+                }
+
+                meta._field = FindInstanceField(elementType, attribute.TargetMemberName);
+                if (meta._field != null)
+                {
+                    meta.MemberType = meta._field.FieldType;
+                    if (meta._field.IsInitOnly)
+                    {
+                        meta.Error = $"ListDropZone“{zoneName}”的目标字段 {attribute.TargetMemberName} 是只读字段。";
+                        return meta;
+                    }
+                }
+                else
+                {
+                    meta._property = FindInstanceProperty(elementType, attribute.TargetMemberName);
+                    if (meta._property == null)
+                    {
+                        meta.Error = $"ListDropZone“{zoneName}”在 {elementType.Name} 中找不到成员 {attribute.TargetMemberName}。";
+                        return meta;
+                    }
+
+                    meta.MemberType = meta._property.PropertyType;
+                    if (!meta._property.CanRead || !meta._property.CanWrite
+                        || meta._property.GetIndexParameters().Length != 0)
+                    {
+                        meta.Error = $"ListDropZone“{zoneName}”的目标属性 {attribute.TargetMemberName} 必须可读写且不能带索引。";
+                        return meta;
+                    }
+                }
+
+                if (!typeof(UnityEngine.Object).IsAssignableFrom(meta.MemberType))
+                {
+                    meta.Error = $"ListDropZone“{zoneName}”的目标成员必须继承 UnityEngine.Object。";
+                    return meta;
+                }
+
+                if (!string.IsNullOrWhiteSpace(attribute.MatchMemberName))
+                {
+                    if (attribute.MatchMemberName == attribute.TargetMemberName)
+                    {
+                        meta.Error = $"ListDropZone“{zoneName}”的同名配对成员不能与目标成员相同。";
+                        return meta;
+                    }
+
+                    Type matchMemberType;
+                    meta._matchField = FindInstanceField(elementType, attribute.MatchMemberName);
+                    if (meta._matchField != null)
+                    {
+                        matchMemberType = meta._matchField.FieldType;
+                    }
+                    else
+                    {
+                        meta._matchProperty = FindInstanceProperty(elementType, attribute.MatchMemberName);
+                        if (meta._matchProperty == null)
+                        {
+                            meta.Error = $"ListDropZone“{zoneName}”在 {elementType.Name} 中找不到同名配对成员 {attribute.MatchMemberName}。";
+                            return meta;
+                        }
+
+                        if (!meta._matchProperty.CanRead || meta._matchProperty.GetIndexParameters().Length != 0)
+                        {
+                            meta.Error = $"ListDropZone“{zoneName}”的同名配对属性 {attribute.MatchMemberName} 必须可读且不能带索引。";
+                            return meta;
+                        }
+
+                        matchMemberType = meta._matchProperty.PropertyType;
+                    }
+
+                    if (!typeof(UnityEngine.Object).IsAssignableFrom(matchMemberType))
+                    {
+                        meta.Error = $"ListDropZone“{zoneName}”的同名配对成员必须继承 UnityEngine.Object。";
+                    }
+                }
+
+                return meta;
+            }
+
+            private static bool CanCreateListElement(Type elementType)
+            {
+                if (elementType.IsValueType)
+                    return true;
+                if (elementType.IsAbstract || elementType.IsInterface
+                    || typeof(UnityEngine.Object).IsAssignableFrom(elementType))
+                    return false;
+                return elementType.GetConstructor(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null,
+                    Type.EmptyTypes,
+                    null) != null;
+            }
+
+            private static FieldInfo FindInstanceField(Type type, string memberName)
+            {
+                for (Type current = type; current != null; current = current.BaseType)
+                {
+                    FieldInfo field = current.GetField(
+                        memberName,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                    if (field != null)
+                        return field;
+                }
+
+                return null;
+            }
+
+            private static PropertyInfo FindInstanceProperty(Type type, string memberName)
+            {
+                for (Type current = type; current != null; current = current.BaseType)
+                {
+                    PropertyInfo property = current.GetProperty(
+                        memberName,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                    if (property != null)
+                        return property;
+                }
+
+                return null;
+            }
+        }
+
         private class FieldMeta
         {
             public FieldInfo Field;
@@ -2109,6 +2525,7 @@ namespace Nodin.Editor
             public TitleAttribute Title;
             public RequiredAttribute Required;
             public DisplayAsStringAttribute DisplayAsString;
+            public ListDropZoneMeta[] ListDropZones;
 
             // ── 统一访问器（兼容 FieldInfo 和 PropertyInfo）──
             public Type FieldType => Property != null ? Property.PropertyType : Field.FieldType;
@@ -2173,6 +2590,9 @@ namespace Nodin.Editor
                 Title = member.GetCustomAttribute<TitleAttribute>();
                 Required = member.GetCustomAttribute<RequiredAttribute>();
                 DisplayAsString = member.GetCustomAttribute<DisplayAsStringAttribute>();
+                ListDropZones = ListDropZoneMeta.Build(
+                    FieldType,
+                    member.GetCustomAttributes<ListDropZoneAttribute>());
             }
 
             public void BindCallbacks(Type targetType)

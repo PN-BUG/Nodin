@@ -5,7 +5,7 @@
 ## 版本信息
 
 - **稳定版本**: 1.8.0
-- **文档状态**: 当前工作区开发版（2026-09-09）
+- **文档状态**: 当前工作区开发版（2026-09-21）
 - **Unity 版本要求**: 2021.3+
 - **许可证**: Apache-2.0
 - **作者**: zko
@@ -49,6 +49,7 @@
 - **`[OnValueChanged]`** - 字段值改变后回调指定方法
 - **`[MinValue]`** - 设置数值字段的最小值约束
 - **`[ListDrawerSettings]`** - List 字段的绘制设置；`NumberOfItemsPerPage` 可覆盖全局分页大小
+- **`[ListDropZone]`** - 为复杂对象 List/数组添加批量 Object 拖放区，可指定写入元素成员、按另一成员的资源路径文件名自动配对、补空位、追加和去重；同一集合支持多个拖放区
 - **`[DictionaryDrawerSettings]`** - Dictionary 字段的绘制设置（自定义 Key/Value 列标签）；`NumberOfItemsPerPage` 可覆盖全局分页大小
 - **`[Serializable]` 自动内联绘制** - 标记了 `[Serializable]` 的类作为字段时自动内联绘制，带折叠头部和脚本定位
 - **`[ShowInInspector]` 属性支持** - 标记了 `[ShowInInspector]` 的属性（含表达式体属性）自动被收集绘制
@@ -324,6 +325,23 @@ public class InventorySystem : MonoBehaviour
     [LabelText("资源路径")]
     public string resourcePath = "Assets/Resources";
 }
+```
+
+复杂列表可直接声明一个或多个批量拖放区。配置 `MatchMemberName` 后，拖入对象会优先按资源文件名（不含扩展名、忽略大小写）写入同名元素，即使目标成员已有值也会纠正到同名行；找不到同名元素时再填充空缺并自动追加：
+
+```csharp
+[System.Serializable]
+public class TexturePair
+{
+    public Texture source;
+    public Texture target;
+}
+
+[ListDropZone(nameof(TexturePair.source), "批量拖入原始贴图",
+    MatchMemberName = nameof(TexturePair.target), SkipDuplicates = true)]
+[ListDropZone(nameof(TexturePair.target), "批量拖入目标贴图",
+    MatchMemberName = nameof(TexturePair.source), Order = 1)]
+public List<TexturePair> texturePairs = new();
 ```
 
 ### 6. Dictionary 序列化示例
@@ -607,7 +625,8 @@ public Dictionary<string, int> data;
 
 > 以下条目记录各版本当时的实现。若历史条目与“当前开发版”或上文使用说明冲突，以当前开发版说明为准。
 
-### 当前开发版 (2026-09-09)
+### 当前开发版 (2026-09-21)
+- **复杂集合批量拖放**: 新增可重复使用的 `[ListDropZone]`，为 `List<T>` / 数组声明多个 Object 拖放区；支持指定元素字段或属性、按另一成员资源名自动配对、先补空位后追加、可选去重、Undo 和顺序控制
 - **Odin 共存注册改用公开 API**: 自动扫描带 Nodin 特性的 `MonoBehaviour` 和 `ScriptableObject`，通过 Odin Editor Types 配置注册具体编辑器，不再修改 Unity 私有 `CustomEditorAttributes` 缓存
 - **业务继承保持不变**: 普通 `MonoBehaviour`、`MonoSingleton<T>` 和 `ScriptableObject` 可直接使用 Nodin 特性；`NodinMonoBehaviour` 仅负责 Dictionary 自动序列化等附加能力
 - **自动刷新**: 脚本编译及域重载后自动刷新 Odin 编辑器注册，新增 `Tools/Nodin/刷新 Odin 编辑器注册` 作为手动恢复入口
