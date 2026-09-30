@@ -2746,7 +2746,13 @@ namespace Nodin.Editor
         public static FieldInfo[] CollectDictFields(Type type)
         {
             return type.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
-                .Where(f => f.FieldType.IsGenericType
+                .Where(f => (f.IsPublic
+                        || f.GetCustomAttribute<ShowInInspectorAttribute>() != null
+                        || f.GetCustomAttribute<SerializeField>() != null)
+                    && !f.IsNotSerialized
+                    && (f.GetCustomAttribute<HideInInspector>() == null
+                        || f.GetCustomAttribute<ShowInInspectorAttribute>() != null)
+                    && f.FieldType.IsGenericType
                     && f.FieldType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
                 .ToArray();
         }
@@ -2836,6 +2842,9 @@ namespace Nodin.Editor
                 if (parts.Length < 2) continue;
                 var k = DeserializeValue(parts[0], keyType);
                 var v = DeserializeValue(parts[1], valType);
+                // 无法解析的非 nullable 值类型不能通过 IDictionary 写入 Dictionary。
+                if (v == null && valType.IsValueType && Nullable.GetUnderlyingType(valType) == null)
+                    continue;
                 if (k != null && !dict.Contains(k))
                     dict[k] = v;
             }
